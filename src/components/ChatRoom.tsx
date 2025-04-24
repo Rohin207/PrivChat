@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -9,7 +8,8 @@ import {
   Send, 
   User, 
   Users, 
-  Trash2 
+  Trash2,
+  Key 
 } from "lucide-react";
 import { useRoom, Message as MessageType } from "@/contexts/RoomContext";
 import { useUser } from "@/contexts/UserContext";
@@ -84,6 +84,7 @@ const ChatRoom = () => {
   const [showPrivateChat, setShowPrivateChat] = useState(false);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [privateMessage, setPrivateMessage] = useState("");
+  const [showCredentials, setShowCredentials] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
@@ -203,6 +204,15 @@ const ChatRoom = () => {
         <div className="flex items-center space-x-2">
           <ThemeSwitcher />
           
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowCredentials(true)}
+            className="rounded-full"
+          >
+            <Key className="h-5 w-5" />
+          </Button>
+
           {user?.isAdmin && (
             <Button 
               variant="ghost" 
@@ -402,6 +412,35 @@ const ChatRoom = () => {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add new Dialog for Room Credentials */}
+      <Dialog open={showCredentials} onOpenChange={setShowCredentials}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Room Credentials</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Room ID</label>
+              <div className="p-3 bg-muted rounded-md font-mono text-sm">
+                {currentRoom.id}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Room Password</label>
+              <div className="p-3 bg-muted rounded-md font-mono text-sm">
+                {currentRoom.password}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button onClick={() => setShowCredentials(false)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
