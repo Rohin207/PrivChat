@@ -1,7 +1,6 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, LogIn } from "lucide-react";
+import { Plus, LogIn, Heart, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -24,12 +23,14 @@ const HomePage = () => {
   const [name, setName] = useState("");
   const [roomName, setRoomName] = useState("");
   const [roomId, setRoomId] = useState("");
+  const [password, setPassword] = useState("");
+  const [roomPassword, setRoomPassword] = useState("");
 
   const handleCreateRoom = () => {
-    if (!name || !roomName) {
+    if (!name) {
       toast({
         title: "Error",
-        description: "Please enter your name and a room name",
+        description: "Please enter your name",
         variant: "destructive"
       });
       return;
@@ -46,64 +47,98 @@ const HomePage = () => {
       joinedAt: new Date()
     };
     
-    // Set the user in context
     setUser(user);
     
-    // Store user information in session storage
+    // Store user information
     sessionStorage.setItem('userId', userId);
     sessionStorage.setItem('userName', name);
     
     // Create a new room
-    const room = createRoom(roomName, userId, name);
+    const room = createRoom("", userId, name);
+    
+    // Show the room credentials
+    toast({
+      title: "Room Created Successfully",
+      description: `Room ID: ${room.id}\nPassword: ${room.password}\nShare these with your partner!`,
+    });
     
     // Navigate to the room
     navigate(`/room/${room.id}`);
   };
 
   const handleJoinRoom = () => {
-    if (!name || !roomId) {
+    if (!name || !roomId || !roomPassword) {
       toast({
         title: "Error",
-        description: "Please enter your name and a room ID",
+        description: "Please enter your name, room ID and password",
         variant: "destructive"
       });
       return;
     }
 
-    // Create a user ID
     const userId = generateRandomId();
-    
-    // Create a new user object
     const user: User = {
       id: userId,
       name,
       joinedAt: new Date()
     };
     
-    // Set the user in context
     setUser(user);
     
-    // Store user information in session storage
     sessionStorage.setItem('userId', userId);
     sessionStorage.setItem('userName', name);
     
-    // Join the room
-    const success = joinRoom(roomId, user);
+    const success = joinRoom(roomId, roomPassword, user);
     
     if (success) {
-      // Navigate to the room
       navigate(`/room/${roomId}`);
     } else {
       toast({
         title: "Error",
-        description: "Room not found. Please check the room ID and try again.",
+        description: "Invalid room ID or password. Please check and try again.",
         variant: "destructive"
       });
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      {/* Romantic Theme Effects */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="romantic-theme absolute inset-0">
+          {Array.from({ length: 20 }).map((_, i) => (
+            <Heart
+              key={i}
+              className="absolute animate-float text-primary/20"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 5}s`,
+                transform: `scale(${0.5 + Math.random()})`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Hacker Theme Effects */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="hacker-theme absolute inset-0">
+          <div className="cipher-background opacity-20" />
+          {Array.from({ length: 15 }).map((_, i) => (
+            <Sparkles
+              key={i}
+              className="absolute animate-pulse text-primary/30"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 3}s`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
       <div className="absolute top-4 right-4">
         <ThemeSwitcher />
       </div>
@@ -158,16 +193,6 @@ const HomePage = () => {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="room-name">Room Name</Label>
-              <Input 
-                id="room-name" 
-                placeholder="Enter room name" 
-                value={roomName} 
-                onChange={(e) => setRoomName(e.target.value)}
-              />
-            </div>
           </div>
           
           <DialogFooter>
@@ -180,7 +205,7 @@ const HomePage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       {/* Join Room Dialog */}
       <Dialog open={isJoinModalOpen} onOpenChange={setIsJoinModalOpen}>
         <DialogContent>
@@ -206,6 +231,17 @@ const HomePage = () => {
                 placeholder="Enter room ID" 
                 value={roomId} 
                 onChange={(e) => setRoomId(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="room-password">Room Password</Label>
+              <Input 
+                id="room-password"
+                type="password"
+                placeholder="Enter room password" 
+                value={roomPassword} 
+                onChange={(e) => setRoomPassword(e.target.value)}
               />
             </div>
           </div>

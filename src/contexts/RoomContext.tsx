@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
@@ -15,6 +14,7 @@ export interface Message {
 
 export interface Room {
   id: string;
+  password: string;  // Added password field
   name: string;
   createdAt: Date;
   admin: string; // User ID of the admin
@@ -37,7 +37,7 @@ interface RoomContextType {
   activePrivateChat: string | null;
   setActivePrivateChat: (chatId: string | null) => void;
   createRoom: (name: string, adminId: string, adminName: string) => Room;
-  joinRoom: (roomId: string, user: User) => boolean;
+  joinRoom: (roomId: string, password: string, user: User) => boolean;
   leaveRoom: () => void;
   sendMessage: (content: string, isSystem?: boolean) => void;
   sendPrivateMessage: (receiverId: string, content: string) => void;
@@ -67,12 +67,14 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
 
   // Create a new room
   const createRoom = (name: string, adminId: string, adminName: string): Room => {
-    const roomId = generateRandomId();
-    const encryptionKey = generateRandomId(32); // 256-bit key
+    const roomId = generateRandomId(16);
+    const roomPassword = generateRandomId(8); // Generate a random 8-character password
+    const encryptionKey = generateRandomId(32);
     
     const newRoom: Room = {
       id: roomId,
-      name,
+      password: roomPassword,
+      name: `Room-${roomId.slice(0, 6)}`, // Auto-generate room name
       createdAt: new Date(),
       admin: adminId,
       participants: [{
@@ -91,9 +93,9 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   };
 
   // Join an existing room
-  const joinRoom = (roomId: string, user: User): boolean => {
+  const joinRoom = (roomId: string, password: string, user: User): boolean => {
     const room = rooms[roomId];
-    if (!room) return false;
+    if (!room || room.password !== password) return false;
     
     // Add user to room participants
     room.participants.push({
