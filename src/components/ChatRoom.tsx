@@ -53,7 +53,15 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
   return (
     <div className={`flex ${isCurrentUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div className={`max-w-[75%] ${isCurrentUser ? 'bg-primary text-primary-foreground' : 'glass'} rounded-lg p-3 shadow`}>
-        <div className="text-xs mb-1 font-medium">{message.senderName}</div>
+        <div className={`
+          text-xs mb-1 font-medium 
+          ${isCurrentUser 
+            ? 'text-primary-foreground/70' 
+            : 'text-primary font-semibold bg-accent/20 rounded-md px-2 py-0.5'
+          }
+        `}>
+          {message.senderName}
+        </div>
         <div className="break-words">{content}</div>
         <div className="text-xs mt-1 opacity-70">
           {new Date(message.timestamp).toLocaleTimeString()}
