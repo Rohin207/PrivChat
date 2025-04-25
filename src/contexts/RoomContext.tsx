@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
@@ -258,3 +259,4 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
 };
+

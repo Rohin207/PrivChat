@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, LogIn, Heart, Sparkles } from "lucide-react";
@@ -261,3 +262,4 @@ const HomePage = () => {
 };
 
 export default HomePage;
+

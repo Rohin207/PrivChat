@@ -62,3 +62,4 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
     return encryptedMessage;
   }
 };
+

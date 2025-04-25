@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -259,7 +260,7 @@ const ChatRoom = () => {
               </div>
               <Button 
                 variant="ghost" 
-                size="sm" 
+                size="sm"
                 onClick={() => setActivePrivateChat(null)} 
                 className="text-xs"
               >
@@ -456,3 +457,4 @@ const ChatRoom = () => {
 };
 
 export default ChatRoom;
+

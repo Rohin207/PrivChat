@@ -9,7 +9,173 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          is_encrypted: boolean
+          is_system_message: boolean
+          room_id: string
+          sender_id: string
+          sender_name: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          is_encrypted?: boolean
+          is_system_message?: boolean
+          room_id: string
+          sender_id: string
+          sender_name: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          is_encrypted?: boolean
+          is_system_message?: boolean
+          room_id?: string
+          sender_id?: string
+          sender_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      participants: {
+        Row: {
+          id: string
+          is_admin: boolean
+          joined_at: string
+          room_id: string
+          user_id: string
+          user_name: string
+        }
+        Insert: {
+          id?: string
+          is_admin?: boolean
+          joined_at?: string
+          room_id: string
+          user_id: string
+          user_name: string
+        }
+        Update: {
+          id?: string
+          is_admin?: boolean
+          joined_at?: string
+          room_id?: string
+          user_id?: string
+          user_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participants_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_chats: {
+        Row: {
+          id: string
+          participant1_id: string
+          participant2_id: string
+          room_id: string
+        }
+        Insert: {
+          id: string
+          participant1_id: string
+          participant2_id: string
+          room_id: string
+        }
+        Update: {
+          id?: string
+          participant1_id?: string
+          participant2_id?: string
+          room_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_chats_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_messages: {
+        Row: {
+          chat_id: string
+          content: string
+          created_at: string
+          id: string
+          is_encrypted: boolean
+          sender_id: string
+          sender_name: string
+        }
+        Insert: {
+          chat_id: string
+          content: string
+          created_at?: string
+          id?: string
+          is_encrypted?: boolean
+          sender_id: string
+          sender_name: string
+        }
+        Update: {
+          chat_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          is_encrypted?: boolean
+          sender_id?: string
+          sender_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "private_chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          admin_id: string
+          created_at: string
+          id: string
+          name: string
+          password: string
+        }
+        Insert: {
+          admin_id: string
+          created_at?: string
+          id: string
+          name: string
+          password: string
+        }
+        Update: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          password?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
