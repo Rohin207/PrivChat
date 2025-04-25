@@ -2,6 +2,8 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
+import { supabase } from '../integrations/supabase/client';
+import { useToast } from '../hooks/use-toast';
 
 export interface Message {
   id: string;
@@ -15,7 +17,7 @@ export interface Message {
 
 export interface Room {
   id: string;
-  password: string;  // Added password field
+  password: string;
   name: string;
   createdAt: Date;
   admin: string; // User ID of the admin
@@ -65,6 +67,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [privateChats, setPrivateChats] = useState<PrivateChat[]>([]);
   const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // Create a new room
   const createRoom = (name: string, adminId: string, adminName: string): Room => {
@@ -75,7 +78,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     const newRoom: Room = {
       id: roomId,
       password: roomPassword,
-      name: `Room-${roomId.slice(0, 6)}`, // Auto-generate room name
+      name: name || `Room-${roomId.slice(0, 6)}`, // Use provided name or auto-generate
       createdAt: new Date(),
       admin: adminId,
       participants: [{
@@ -88,15 +91,45 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       encryptionKey
     };
     
+    // Store room in memory
     rooms[roomId] = newRoom;
+    
+    console.log("Room created:", roomId, "with password:", roomPassword);
+    
     setCurrentRoom(newRoom);
     return newRoom;
   };
 
   // Join an existing room
   const joinRoom = (roomId: string, password: string, user: User): boolean => {
+    // Debug logs
+    console.log("Attempting to join room:", roomId);
+    console.log("Provided password:", password);
+    console.log("Available rooms:", Object.keys(rooms));
+    
     const room = rooms[roomId];
-    if (!room || room.password !== password) return false;
+    
+    if (!room) {
+      console.log("Room not found");
+      toast({
+        title: "Error",
+        description: `Room ${roomId} not found`,
+        variant: "destructive"
+      });
+      return false;
+    }
+    
+    console.log("Room found, actual password:", room.password);
+    
+    if (room.password !== password) {
+      console.log("Password mismatch");
+      toast({
+        title: "Error",
+        description: "Invalid room password",
+        variant: "destructive"
+      });
+      return false;
+    }
     
     // Add user to room participants
     room.participants.push({
@@ -116,6 +149,9 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     };
     
     room.messages.push(joinMessage);
+    console.log("User joined successfully");
+    
+    // Set current room with the updated room data
     setCurrentRoom({...room});
     return true;
   };
@@ -259,4 +295,3 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
 };
-

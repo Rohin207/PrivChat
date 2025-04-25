@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, LogIn, Heart, Sparkles } from "lucide-react";
@@ -24,7 +23,6 @@ const HomePage = () => {
   const [name, setName] = useState("");
   const [roomName, setRoomName] = useState("");
   const [roomId, setRoomId] = useState("");
-  const [password, setPassword] = useState("");
   const [roomPassword, setRoomPassword] = useState("");
 
   const handleCreateRoom = () => {
@@ -55,7 +53,7 @@ const HomePage = () => {
     sessionStorage.setItem('userName', name);
     
     // Create a new room
-    const room = createRoom("", userId, name);
+    const room = createRoom(roomName, userId, name);
     
     // Show the room credentials
     toast({
@@ -76,6 +74,12 @@ const HomePage = () => {
       });
       return;
     }
+
+    console.log("Joining room with:", {
+      name,
+      roomId,
+      password: roomPassword
+    });
 
     const userId = generateRandomId();
     const user: User = {
@@ -194,6 +198,16 @@ const HomePage = () => {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="roomName">Room Name (Optional)</Label>
+              <Input 
+                id="roomName" 
+                placeholder="Enter room name" 
+                value={roomName} 
+                onChange={(e) => setRoomName(e.target.value)}
+              />
+            </div>
           </div>
           
           <DialogFooter>
@@ -262,4 +276,3 @@ const HomePage = () => {
 };
 
 export default HomePage;
-
