@@ -4,6 +4,7 @@ import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '../hooks/use-toast';
+import { encryptMessage, decryptMessage } from '../utils/crypto';
 
 export interface Message {
   id: string;
@@ -39,11 +40,12 @@ interface RoomContextType {
   setPrivateChats: (chats: PrivateChat[]) => void;
   activePrivateChat: string | null;
   setActivePrivateChat: (chatId: string | null) => void;
-  createRoom: (name: string, adminId: string, adminName: string) => Room;
-  joinRoom: (roomId: string, password: string, user: User) => boolean;
+  createRoom: (name: string, adminId: string, adminName: string) => Promise<Room>;
+  joinRoom: (roomId: string, password: string, user: User) => Promise<boolean>;
   leaveRoom: () => void;
   sendMessage: (content: string, isSystem?: boolean) => void;
   sendPrivateMessage: (receiverId: string, content: string) => void;
+  availableRooms: { id: string; name: string }[];
 }
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
@@ -60,26 +62,202 @@ interface RoomProviderProps {
   children: ReactNode;
 }
 
-// Mock storage for rooms (would be replaced by a real database/websocket connection)
-const rooms: Record<string, Room> = {};
-
 export const RoomProvider = ({ children }: RoomProviderProps) => {
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [privateChats, setPrivateChats] = useState<PrivateChat[]>([]);
   const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
+  const [availableRooms, setAvailableRooms] = useState<{ id: string; name: string }[]>([]);
   const { toast } = useToast();
 
+  // Subscribe to room updates
+  useEffect(() => {
+    const roomSubscription = supabase
+      .channel('public:rooms')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'rooms'
+      }, (payload) => {
+        console.log('Room change detected:', payload);
+        fetchAvailableRooms();
+      })
+      .subscribe();
+
+    // Initial load of available rooms
+    fetchAvailableRooms();
+
+    return () => {
+      supabase.removeChannel(roomSubscription);
+    };
+  }, []);
+
+  // Subscribe to messages when a room is joined
+  useEffect(() => {
+    if (!currentRoom) return;
+
+    const messageSubscription = supabase
+      .channel(`room-messages-${currentRoom.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `room_id=eq.${currentRoom.id}`
+      }, (payload) => {
+        console.log('New message received:', payload);
+        
+        if (payload.new) {
+          const newMessage: any = payload.new;
+          
+          // Skip if this is our own message (we've already added it to the UI)
+          const userId = sessionStorage.getItem('userId');
+          if (newMessage.sender_id === userId) return;
+          
+          // Convert from database format to our app format
+          const message: Message = {
+            id: newMessage.id,
+            senderId: newMessage.sender_id,
+            senderName: newMessage.sender_name,
+            content: newMessage.content,
+            timestamp: new Date(newMessage.created_at),
+            isEncrypted: newMessage.is_encrypted,
+            isSystemMessage: newMessage.is_system_message
+          };
+          
+          // Add the message to the current room
+          setCurrentRoom(prevRoom => {
+            if (!prevRoom) return null;
+            return {
+              ...prevRoom,
+              messages: [...prevRoom.messages, message]
+            };
+          });
+        }
+      })
+      .subscribe();
+
+    // Subscribe to participants
+    const participantSubscription = supabase
+      .channel(`room-participants-${currentRoom.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'participants',
+        filter: `room_id=eq.${currentRoom.id}`
+      }, (payload) => {
+        console.log('Participant change detected:', payload);
+        
+        // Refresh participant list
+        if (currentRoom) {
+          fetchRoomParticipants(currentRoom.id);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messageSubscription);
+      supabase.removeChannel(participantSubscription);
+    };
+  }, [currentRoom?.id]);
+
+  // Fetch available rooms
+  const fetchAvailableRooms = async () => {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('id, name')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching available rooms:', error);
+      return;
+    }
+
+    setAvailableRooms(data);
+  };
+
+  // Fetch room participants
+  const fetchRoomParticipants = async (roomId: string) => {
+    const { data, error } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('room_id', roomId);
+
+    if (error) {
+      console.error('Error fetching room participants:', error);
+      return;
+    }
+
+    if (!currentRoom) return;
+
+    // Update the participants list
+    const participants: User[] = data.map(p => ({
+      id: p.user_id,
+      name: p.user_name,
+      isAdmin: p.is_admin,
+      joinedAt: new Date(p.joined_at)
+    }));
+
+    setCurrentRoom(prev => {
+      if (!prev) return null;
+      return { ...prev, participants };
+    });
+  };
+
   // Create a new room
-  const createRoom = (name: string, adminId: string, adminName: string): Room => {
+  const createRoom = async (name: string, adminId: string, adminName: string): Promise<Room> => {
     const roomId = generateRandomId(16);
-    const roomPassword = generateRandomId(8); // Generate a random 8-character password
+    const roomPassword = generateRandomId(8); 
     const encryptionKey = generateRandomId(32);
     
+    // Insert the room into Supabase
+    const { data: roomData, error: roomError } = await supabase
+      .from('rooms')
+      .insert({
+        id: roomId,
+        name: name || `Room-${roomId.slice(0, 6)}`,
+        password: roomPassword,
+        admin_id: adminId,
+      })
+      .select()
+      .single();
+    
+    if (roomError) {
+      console.error('Error creating room:', roomError);
+      toast({
+        title: 'Error',
+        description: 'Failed to create room. Please try again.',
+        variant: 'destructive'
+      });
+      throw roomError;
+    }
+    
+    // Add the admin as a participant
+    const { error: participantError } = await supabase
+      .from('participants')
+      .insert({
+        room_id: roomId,
+        user_id: adminId,
+        user_name: adminName,
+        is_admin: true
+      });
+    
+    if (participantError) {
+      console.error('Error adding participant:', participantError);
+      toast({
+        title: 'Error',
+        description: 'Failed to join as admin. Please try again.',
+        variant: 'destructive'
+      });
+      throw participantError;
+    }
+    
+    console.log("Room created:", roomId, "with password:", roomPassword);
+    
+    // Create room object for the UI
     const newRoom: Room = {
       id: roomId,
       password: roomPassword,
-      name: name || `Room-${roomId.slice(0, 6)}`, // Use provided name or auto-generate
-      createdAt: new Date(),
+      name: name || `Room-${roomId.slice(0, 6)}`,
+      createdAt: new Date(roomData.created_at),
       admin: adminId,
       participants: [{
         id: adminId,
@@ -91,51 +269,57 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       encryptionKey
     };
     
-    // Store room in memory
-    rooms[roomId] = newRoom;
-    
-    console.log("Room created:", roomId, "with password:", roomPassword);
+    // Add to available rooms list
+    setAvailableRooms(prev => [...prev, { id: roomId, name: newRoom.name }]);
     
     setCurrentRoom(newRoom);
     return newRoom;
   };
 
   // Join an existing room
-  const joinRoom = (roomId: string, password: string, user: User): boolean => {
+  const joinRoom = async (roomId: string, password: string, user: User): Promise<boolean> => {
     // Debug logs
     console.log("Attempting to join room:", roomId);
     console.log("Provided password:", password);
-    console.log("Available rooms:", Object.keys(rooms));
     
-    const room = rooms[roomId];
+    // Check if room exists and password is correct
+    const { data: roomData, error: roomError } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('id', roomId)
+      .eq('password', password)
+      .single();
     
-    if (!room) {
-      console.log("Room not found");
+    if (roomError || !roomData) {
+      console.log("Room not found or incorrect password");
       toast({
         title: "Error",
-        description: `Room ${roomId} not found`,
+        description: "Invalid room ID or password",
         variant: "destructive"
       });
       return false;
     }
     
-    console.log("Room found, actual password:", room.password);
-    
-    if (room.password !== password) {
-      console.log("Password mismatch");
-      toast({
-        title: "Error",
-        description: "Invalid room password",
-        variant: "destructive"
-      });
-      return false;
-    }
+    console.log("Room found:", roomData);
     
     // Add user to room participants
-    room.participants.push({
-      ...user,
-      joinedAt: new Date()
-    });
+    const { error: participantError } = await supabase
+      .from('participants')
+      .insert({
+        room_id: roomId,
+        user_id: user.id,
+        user_name: user.name
+      });
+    
+    if (participantError) {
+      console.error('Error adding participant:', participantError);
+      toast({
+        title: 'Error',
+        description: 'Failed to join room. Please try again.',
+        variant: 'destructive'
+      });
+      return false;
+    }
     
     // Add system message
     const joinMessage: Message = {
@@ -148,77 +332,65 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       isSystemMessage: true
     };
     
-    room.messages.push(joinMessage);
+    // Insert the system message
+    await supabase
+      .from('messages')
+      .insert({
+        room_id: roomId,
+        sender_id: 'system',
+        sender_name: 'System',
+        content: joinMessage.content,
+        is_encrypted: false,
+        is_system_message: true
+      });
+    
     console.log("User joined successfully");
     
-    // Set current room with the updated room data
-    setCurrentRoom({...room});
+    // Fetch all messages for this room
+    const { data: messagesData } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: true });
+    
+    // Fetch all participants
+    const { data: participantsData } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('room_id', roomId);
+    
+    // Create room object for the UI
+    const newRoom: Room = {
+      id: roomId,
+      password: password,
+      name: roomData.name,
+      createdAt: new Date(roomData.created_at),
+      admin: roomData.admin_id,
+      participants: participantsData?.map(p => ({
+        id: p.user_id,
+        name: p.user_name,
+        isAdmin: p.is_admin,
+        joinedAt: new Date(p.joined_at)
+      })) || [],
+      messages: messagesData?.map(m => ({
+        id: m.id,
+        senderId: m.sender_id,
+        senderName: m.sender_name,
+        content: m.content,
+        timestamp: new Date(m.created_at),
+        isEncrypted: m.is_encrypted,
+        isSystemMessage: m.is_system_message
+      })) || [],
+      encryptionKey: sessionStorage.getItem(`room_${roomId}_key`) || undefined
+    };
+    
+    // Set current room
+    setCurrentRoom(newRoom);
     return true;
   };
 
   // Leave the current room
-  const leaveRoom = () => {
-    if (!currentRoom) return;
-    
-    const user = currentRoom.participants.find(p => p.id === sessionStorage.getItem('userId'));
-    if (!user) return;
-    
-    // If the leaving user is admin, transfer admin to the second earliest joiner
-    if (user.isAdmin && currentRoom.participants.length > 1) {
-      // Sort participants by join time
-      const sortedParticipants = [...currentRoom.participants]
-        .filter(p => p.id !== user.id)
-        .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
-      
-      if (sortedParticipants.length > 0) {
-        const newAdmin = sortedParticipants[0];
-        currentRoom.admin = newAdmin.id;
-        const adminIndex = currentRoom.participants.findIndex(p => p.id === newAdmin.id);
-        if (adminIndex !== -1) {
-          currentRoom.participants[adminIndex].isAdmin = true;
-        }
-        
-        // Add system message
-        const adminChangeMessage: Message = {
-          id: generateRandomId(),
-          senderId: 'system',
-          senderName: 'System',
-          content: `${user.name} left the room. ${newAdmin.name} is now the admin.`,
-          timestamp: new Date(),
-          isEncrypted: false,
-          isSystemMessage: true
-        };
-        currentRoom.messages.push(adminChangeMessage);
-      }
-    } else {
-      // Add system message for regular user leaving
-      const leaveMessage: Message = {
-        id: generateRandomId(),
-        senderId: 'system',
-        senderName: 'System',
-        content: `${user.name} left the room`,
-        timestamp: new Date(),
-        isEncrypted: false,
-        isSystemMessage: true
-      };
-      currentRoom.messages.push(leaveMessage);
-    }
-    
-    // Remove the user from the room
-    currentRoom.participants = currentRoom.participants.filter(p => p.id !== user.id);
-    
-    // If no participants left, delete the room
-    if (currentRoom.participants.length === 0) {
-      delete rooms[currentRoom.id];
-    } else {
-      rooms[currentRoom.id] = {...currentRoom};
-    }
-    
-    setCurrentRoom(null);
-  };
-
-  // Send a message to the current room
-  const sendMessage = (content: string, isSystem = false) => {
+  const leaveRoom = async () => {
     if (!currentRoom) return;
     
     const userId = sessionStorage.getItem('userId');
@@ -226,19 +398,115 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     
     if (!userId || !userName) return;
     
+    // Remove user from participants
+    await supabase
+      .from('participants')
+      .delete()
+      .eq('room_id', currentRoom.id)
+      .eq('user_id', userId);
+    
+    // Add system message about leaving
+    await supabase
+      .from('messages')
+      .insert({
+        room_id: currentRoom.id,
+        sender_id: 'system',
+        sender_name: 'System',
+        content: `${userName} left the room`,
+        is_encrypted: false,
+        is_system_message: true
+      });
+    
+    // If user is admin, check if we should transfer admin role
+    if (currentRoom.admin === userId) {
+      const { data: participants } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('room_id', currentRoom.id)
+        .order('joined_at', { ascending: true })
+        .limit(1);
+      
+      if (participants && participants.length > 0) {
+        // Transfer admin role to the earliest joined participant
+        await supabase
+          .from('participants')
+          .update({ is_admin: true })
+          .eq('id', participants[0].id);
+        
+        await supabase
+          .from('rooms')
+          .update({ admin_id: participants[0].user_id })
+          .eq('id', currentRoom.id);
+        
+        // Add system message about admin transfer
+        await supabase
+          .from('messages')
+          .insert({
+            room_id: currentRoom.id,
+            sender_id: 'system',
+            sender_name: 'System',
+            content: `${userName} left the room. ${participants[0].user_name} is now the admin.`,
+            is_encrypted: false,
+            is_system_message: true
+          });
+      } else {
+        // No participants left, delete the room
+        await supabase
+          .from('rooms')
+          .delete()
+          .eq('id', currentRoom.id);
+      }
+    }
+    
+    setCurrentRoom(null);
+  };
+
+  // Send a message to the current room
+  const sendMessage = async (content: string, isSystem = false) => {
+    if (!currentRoom) return;
+    
+    const userId = sessionStorage.getItem('userId');
+    const userName = sessionStorage.getItem('userName');
+    
+    if (!userId || !userName) return;
+    
+    // Create message object
     const newMessage: Message = {
       id: generateRandomId(),
       senderId: isSystem ? 'system' : userId,
       senderName: isSystem ? 'System' : userName,
       content,
       timestamp: new Date(),
-      isEncrypted: !isSystem,
+      isEncrypted: !isSystem && !!currentRoom.encryptionKey,
       isSystemMessage: isSystem
     };
     
-    currentRoom.messages.push(newMessage);
-    rooms[currentRoom.id] = {...currentRoom};
-    setCurrentRoom({...currentRoom});
+    // If encryption is enabled and it's not a system message, encrypt the content
+    let finalContent = content;
+    if (currentRoom.encryptionKey && !isSystem) {
+      finalContent = encryptMessage(content, currentRoom.encryptionKey);
+    }
+    
+    // Add message to Supabase
+    await supabase
+      .from('messages')
+      .insert({
+        room_id: currentRoom.id,
+        sender_id: newMessage.senderId,
+        sender_name: newMessage.senderName,
+        content: finalContent,
+        is_encrypted: newMessage.isEncrypted,
+        is_system_message: isSystem
+      });
+    
+    // Update local state immediately for better UX
+    setCurrentRoom(prevRoom => {
+      if (!prevRoom) return null;
+      return {
+        ...prevRoom,
+        messages: [...prevRoom.messages, newMessage]
+      };
+    });
   };
 
   // Send a private message
@@ -290,7 +558,8 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     joinRoom,
     leaveRoom,
     sendMessage,
-    sendPrivateMessage
+    sendPrivateMessage,
+    availableRooms
   };
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;

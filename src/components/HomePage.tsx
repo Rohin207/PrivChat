@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, LogIn, Heart, Sparkles } from "lucide-react";
+import { Plus, LogIn, Heart, Sparkles, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -15,17 +15,28 @@ const HomePage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { setUser } = useUser();
-  const { createRoom, joinRoom } = useRoom();
+  const { createRoom, joinRoom, availableRooms } = useRoom();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [isBrowseModalOpen, setIsBrowseModalOpen] = useState(false);
   
   const [name, setName] = useState("");
   const [roomName, setRoomName] = useState("");
   const [roomId, setRoomId] = useState("");
   const [roomPassword, setRoomPassword] = useState("");
+  const [selectedRoomId, setSelectedRoomId] = useState("");
+  const [selectedRoomName, setSelectedRoomName] = useState("");
 
-  const handleCreateRoom = () => {
+  // Load stored username if available
+  useEffect(() => {
+    const storedName = sessionStorage.getItem('userName');
+    if (storedName) {
+      setName(storedName);
+    }
+  }, []);
+
+  const handleCreateRoom = async () => {
     if (!name) {
       toast({
         title: "Error",
@@ -35,37 +46,51 @@ const HomePage = () => {
       return;
     }
 
-    // Create a user ID
-    const userId = generateRandomId();
-    
-    // Create a new user object
-    const user: User = {
-      id: userId,
-      name,
-      isAdmin: true,
-      joinedAt: new Date()
-    };
-    
-    setUser(user);
-    
-    // Store user information
-    sessionStorage.setItem('userId', userId);
-    sessionStorage.setItem('userName', name);
-    
-    // Create a new room
-    const room = createRoom(roomName, userId, name);
-    
-    // Show the room credentials
-    toast({
-      title: "Room Created Successfully",
-      description: `Room ID: ${room.id}\nPassword: ${room.password}\nShare these with your partner!`,
-    });
-    
-    // Navigate to the room
-    navigate(`/room/${room.id}`);
+    try {
+      // Create a user ID
+      const userId = generateRandomId();
+      
+      // Create a new user object
+      const user: User = {
+        id: userId,
+        name,
+        isAdmin: true,
+        joinedAt: new Date()
+      };
+      
+      setUser(user);
+      
+      // Store user information
+      sessionStorage.setItem('userId', userId);
+      sessionStorage.setItem('userName', name);
+      
+      // Create a new room
+      const room = await createRoom(roomName, userId, name);
+      
+      // Show the room credentials
+      toast({
+        title: "Room Created Successfully",
+        description: `Room ID: ${room.id}\nPassword: ${room.password}\nShare these with your partner!`,
+      });
+      
+      // Store encryption key
+      if (room.encryptionKey) {
+        sessionStorage.setItem(`room_${room.id}_key`, room.encryptionKey);
+      }
+      
+      // Navigate to the room
+      navigate(`/room/${room.id}`);
+    } catch (error) {
+      console.error("Error creating room:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create room. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = async () => {
     if (!name || !roomId || !roomPassword) {
       toast({
         title: "Error",
@@ -75,35 +100,46 @@ const HomePage = () => {
       return;
     }
 
-    console.log("Joining room with:", {
-      name,
-      roomId,
-      password: roomPassword
-    });
+    try {
+      console.log("Joining room with:", {
+        name,
+        roomId,
+        password: roomPassword
+      });
 
-    const userId = generateRandomId();
-    const user: User = {
-      id: userId,
-      name,
-      joinedAt: new Date()
-    };
-    
-    setUser(user);
-    
-    sessionStorage.setItem('userId', userId);
-    sessionStorage.setItem('userName', name);
-    
-    const success = joinRoom(roomId, roomPassword, user);
-    
-    if (success) {
-      navigate(`/room/${roomId}`);
-    } else {
+      const userId = generateRandomId();
+      const user: User = {
+        id: userId,
+        name,
+        joinedAt: new Date()
+      };
+      
+      setUser(user);
+      
+      sessionStorage.setItem('userId', userId);
+      sessionStorage.setItem('userName', name);
+      
+      const success = await joinRoom(roomId, roomPassword, user);
+      
+      if (success) {
+        navigate(`/room/${roomId}`);
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
       toast({
         title: "Error",
-        description: "Invalid room ID or password. Please check and try again.",
+        description: "Failed to join room. Please try again.",
         variant: "destructive"
       });
     }
+  };
+
+  const handleSelectRoom = (id: string, name: string) => {
+    setSelectedRoomId(id);
+    setSelectedRoomName(name);
+    setRoomId(id);
+    setIsBrowseModalOpen(false);
+    setIsJoinModalOpen(true);
   };
 
   return (
@@ -173,6 +209,16 @@ const HomePage = () => {
             <LogIn size={20} />
             <span>Join Room</span>
           </Button>
+
+          <Button 
+            variant="ghost" 
+            size="lg" 
+            className="space-x-2 w-full"
+            onClick={() => setIsBrowseModalOpen(true)}
+          >
+            <Search size={20} />
+            <span>Browse Available Rooms</span>
+          </Button>
         </div>
         
         <div className="text-center text-sm text-muted-foreground">
@@ -220,7 +266,7 @@ const HomePage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
+      
       {/* Join Room Dialog */}
       <Dialog open={isJoinModalOpen} onOpenChange={setIsJoinModalOpen}>
         <DialogContent>
@@ -267,6 +313,50 @@ const HomePage = () => {
             </Button>
             <Button onClick={handleJoinRoom}>
               Join Room
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Browse Rooms Dialog */}
+      <Dialog open={isBrowseModalOpen} onOpenChange={setIsBrowseModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Available Rooms</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {availableRooms.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                No rooms available. Create one!
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {availableRooms.map((room) => (
+                  <div 
+                    key={room.id}
+                    className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => handleSelectRoom(room.id, room.name)}
+                  >
+                    <div>
+                      <div className="font-medium">{room.name}</div>
+                      <div className="text-xs text-muted-foreground">ID: {room.id}</div>
+                    </div>
+                    <Button size="sm" variant="outline">
+                      Join
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBrowseModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              Create New Room
             </Button>
           </DialogFooter>
         </DialogContent>
