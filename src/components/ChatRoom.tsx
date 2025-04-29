@@ -10,9 +10,12 @@ import {
   User, 
   Users, 
   Trash2,
-  Key 
+  Key,
+  UserCheck,
+  UserX,
+  Bell 
 } from "lucide-react";
-import { useRoom, Message as MessageType } from "@/contexts/RoomContext";
+import { useRoom, Message as MessageType, JoinRequest } from "@/contexts/RoomContext";
 import { useUser } from "@/contexts/UserContext";
 import { 
   AlertDialog,
@@ -29,6 +32,8 @@ import { encryptMessage, decryptMessage } from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Badge } from "./ui/badge";
 
 // ChatMessage component
 const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encryptionKey?: string }) => {
@@ -77,6 +82,7 @@ const ChatRoom = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useUser();
+  const isMobile = useIsMobile();
   const { 
     currentRoom, 
     leaveRoom, 
@@ -84,7 +90,10 @@ const ChatRoom = () => {
     privateChats, 
     activePrivateChat, 
     setActivePrivateChat,
-    sendPrivateMessage
+    sendPrivateMessage,
+    fetchJoinRequests,
+    approveJoinRequest,
+    rejectJoinRequest
   } = useRoom();
   
   const [message, setMessage] = useState("");
@@ -94,6 +103,7 @@ const ChatRoom = () => {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [privateMessage, setPrivateMessage] = useState("");
   const [showCredentials, setShowCredentials] = useState(false);
+  const [showJoinRequests, setShowJoinRequests] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
@@ -127,6 +137,21 @@ const ChatRoom = () => {
     }
   }, [currentRoom, navigate, roomId, toast, user]);
   
+  // Fetch join requests periodically for admin
+  useEffect(() => {
+    if (!currentRoom || currentRoom.admin !== user?.id) return;
+    
+    // Fetch join requests initially
+    fetchJoinRequests();
+    
+    // Set up interval to check for join requests
+    const interval = setInterval(() => {
+      fetchJoinRequests();
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(interval);
+  }, [currentRoom, fetchJoinRequests, user?.id]);
+  
   const handleSendMessage = (e?: React.FormEvent) => {
     e?.preventDefault();
     
@@ -152,8 +177,8 @@ const ChatRoom = () => {
     navigate('/');
   };
   
-  const handleLeaveRoom = () => {
-    leaveRoom();
+  const handleLeaveRoom = async () => {
+    await leaveRoom();
     navigate('/');
   };
   
@@ -174,6 +199,17 @@ const ChatRoom = () => {
     setShowPrivateChat(false);
   };
 
+  const handleApproveRequest = async (request: JoinRequest) => {
+    const success = await approveJoinRequest(request);
+    if (success) {
+      setShowJoinRequests(false);
+    }
+  };
+
+  const handleRejectRequest = async (request: JoinRequest) => {
+    await rejectJoinRequest(request);
+  };
+
   // If not room or not a participant, show loading
   if (!currentRoom) {
     return (
@@ -187,6 +223,8 @@ const ChatRoom = () => {
   const activeChatData = activePrivateChat 
     ? privateChats.find(chat => chat.id === activePrivateChat)
     : null;
+    
+  const joinRequestCount = currentRoom.joinRequests?.length || 0;
 
   return (
     <div className="flex flex-col h-screen">
@@ -211,7 +249,7 @@ const ChatRoom = () => {
         </div>
         
         <div className="flex items-center space-x-2">
-          <ThemeSwitcher />
+          {!isMobile && <ThemeSwitcher />}
           
           <Button
             variant="ghost"
@@ -221,6 +259,20 @@ const ChatRoom = () => {
           >
             <Key className="h-5 w-5" />
           </Button>
+
+          {user?.isAdmin && joinRequestCount > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowJoinRequests(true)}
+              className="rounded-full relative"
+            >
+              <Bell className="h-5 w-5" />
+              <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0">
+                {joinRequestCount}
+              </Badge>
+            </Button>
+          )}
 
           {user?.isAdmin && (
             <Button 
@@ -353,7 +405,7 @@ const ChatRoom = () => {
       
       {/* Participants Dialog */}
       <Dialog open={showParticipants} onOpenChange={setShowParticipants}>
-        <DialogContent>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Room Participants</DialogTitle>
           </DialogHeader>
@@ -397,7 +449,7 @@ const ChatRoom = () => {
       
       {/* Private Chat Dialog */}
       <Dialog open={showPrivateChat} onOpenChange={setShowPrivateChat}>
-        <DialogContent>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>
               Private Chat with {selectedUser && currentRoom.participants.find(p => p.id === selectedUser)?.name}
@@ -424,9 +476,9 @@ const ChatRoom = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add new Dialog for Room Credentials */}
+      {/* Room Credentials Dialog */}
       <Dialog open={showCredentials} onOpenChange={setShowCredentials}>
-        <DialogContent>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Room Credentials</DialogTitle>
           </DialogHeader>
@@ -434,14 +486,14 @@ const ChatRoom = () => {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Room ID</label>
-              <div className="p-3 bg-muted rounded-md font-mono text-sm">
+              <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
                 {currentRoom.id}
               </div>
             </div>
             
             <div className="space-y-2">
               <label className="text-sm font-medium">Room Password</label>
-              <div className="p-3 bg-muted rounded-md font-mono text-sm">
+              <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
                 {currentRoom.password}
               </div>
             </div>
@@ -452,9 +504,65 @@ const ChatRoom = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Join Requests Dialog */}
+      <Dialog open={showJoinRequests} onOpenChange={setShowJoinRequests}>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
+          <DialogHeader>
+            <DialogTitle>Join Requests</DialogTitle>
+          </DialogHeader>
+          
+          <ScrollArea className="h-64">
+            <div className="space-y-4">
+              {currentRoom.joinRequests && currentRoom.joinRequests.length > 0 ? (
+                currentRoom.joinRequests.map(request => (
+                  <div 
+                    key={request.id}
+                    className="p-4 border rounded-lg"
+                  >
+                    <div className="flex items-center space-x-2 mb-3">
+                      <User className="h-5 w-5" />
+                      <span className="font-medium">{request.userName}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-3">
+                      Requested {new Date(request.timestamp).toLocaleString()}
+                    </div>
+                    <div className="flex space-x-2">
+                      <Button 
+                        size="sm" 
+                        className="w-full"
+                        onClick={() => handleApproveRequest(request)}
+                      >
+                        <UserCheck className="h-4 w-4 mr-1" />
+                        Approve
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="w-full"
+                        onClick={() => handleRejectRequest(request)}
+                      >
+                        <UserX className="h-4 w-4 mr-1" />
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  No pending join requests
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+          
+          <DialogFooter>
+            <Button onClick={() => setShowJoinRequests(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 export default ChatRoom;
-

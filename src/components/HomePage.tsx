@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, LogIn, Heart, Sparkles, Search } from "lucide-react";
@@ -10,12 +11,14 @@ import { useUser, User } from "@/contexts/UserContext";
 import { useRoom } from "@/contexts/RoomContext";
 import { generateRandomId } from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const HomePage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { setUser } = useUser();
-  const { createRoom, joinRoom, availableRooms } = useRoom();
+  const { createRoom, joinRoom, availableRooms, requestToJoinRoom } = useRoom();
+  const isMobile = useIsMobile();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
@@ -119,11 +122,16 @@ const HomePage = () => {
       sessionStorage.setItem('userId', userId);
       sessionStorage.setItem('userName', name);
       
+      // Try to join the room
       const success = await joinRoom(roomId, roomPassword, user);
       
       if (success) {
+        // The joinRoom function will either join directly (if admin) or send a request
+        // If admin, we navigate to the room
         navigate(`/room/${roomId}`);
       }
+      
+      setIsJoinModalOpen(false);
     } catch (error) {
       console.error("Error joining room:", error);
       toast({
@@ -147,7 +155,7 @@ const HomePage = () => {
       {/* Romantic Theme Effects */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="romantic-theme absolute inset-0">
-          {Array.from({ length: 20 }).map((_, i) => (
+          {Array.from({ length: isMobile ? 10 : 20 }).map((_, i) => (
             <Heart
               key={i}
               className="absolute animate-float text-primary/20"
@@ -166,7 +174,7 @@ const HomePage = () => {
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="hacker-theme absolute inset-0">
           <div className="cipher-background opacity-20" />
-          {Array.from({ length: 15 }).map((_, i) => (
+          {Array.from({ length: isMobile ? 8 : 15 }).map((_, i) => (
             <Sparkles
               key={i}
               className="absolute animate-pulse text-primary/30"
@@ -229,7 +237,7 @@ const HomePage = () => {
       
       {/* Create Room Dialog */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Create a New Room</DialogTitle>
           </DialogHeader>
@@ -269,7 +277,7 @@ const HomePage = () => {
       
       {/* Join Room Dialog */}
       <Dialog open={isJoinModalOpen} onOpenChange={setIsJoinModalOpen}>
-        <DialogContent>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Join a Room</DialogTitle>
           </DialogHeader>
@@ -305,6 +313,10 @@ const HomePage = () => {
                 onChange={(e) => setRoomPassword(e.target.value)}
               />
             </div>
+            
+            <div className="text-sm text-muted-foreground">
+              <p>Note: If you're not the admin, your request to join will need approval.</p>
+            </div>
           </div>
           
           <DialogFooter>
@@ -320,7 +332,7 @@ const HomePage = () => {
 
       {/* Browse Rooms Dialog */}
       <Dialog open={isBrowseModalOpen} onOpenChange={setIsBrowseModalOpen}>
-        <DialogContent>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Available Rooms</DialogTitle>
           </DialogHeader>
