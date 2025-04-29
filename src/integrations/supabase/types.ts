@@ -9,6 +9,38 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      join_requests: {
+        Row: {
+          created_at: string
+          id: string
+          room_id: string
+          user_id: string
+          user_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          room_id: string
+          user_id: string
+          user_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          room_id?: string
+          user_id?: string
+          user_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "join_requests_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string

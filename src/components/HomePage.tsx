@@ -127,7 +127,6 @@ const HomePage = () => {
       
       if (success) {
         // The joinRoom function will either join directly (if admin) or send a request
-        // If admin, we navigate to the room
         navigate(`/room/${roomId}`);
       }
       
