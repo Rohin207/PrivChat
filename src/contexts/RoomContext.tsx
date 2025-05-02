@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
@@ -581,6 +580,8 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   // Join an existing room directly (for backward compatibility)
   const joinRoom = async (roomId: string, password: string, user: User): Promise<boolean> => {
     try {
+      console.log("Attempting to join room:", roomId);
+      
       // Check if room exists and password is correct
       const { data: roomData, error: roomError } = await supabase
         .from('rooms')
@@ -590,7 +591,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         .single();
       
       if (roomError || !roomData) {
-        console.log("Room not found or incorrect password");
+        console.log("Room not found or incorrect password:", roomError);
         toast({
           title: "Error",
           description: "Invalid room ID or password",
@@ -607,68 +608,75 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         return await requestToJoinRoom(roomId, password, user);
       }
       
-      // Check if already a participant
-      const { data: existingParticipant } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('room_id', roomId)
-        .eq('user_id', user.id)
-        .single();
-      
-      // If user is already a participant, fetch the room data without creating a new entry
-      if (existingParticipant) {
-        console.log("User is already a participant");
-        
-        // Fetch all messages for this room
-        const { data: messagesData } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('room_id', roomId)
-          .order('created_at', { ascending: true });
-        
-        // Fetch all participants
-        const { data: participantsData } = await supabase
+      try {
+        // Check if already a participant
+        const { data: existingParticipant, error: participantError } = await supabase
           .from('participants')
           .select('*')
-          .eq('room_id', roomId);
+          .eq('room_id', roomId)
+          .eq('user_id', user.id);
         
-        // Create room object for the UI
-        const newRoom: Room = {
-          id: roomId,
-          password: password,
-          name: roomData.name,
-          createdAt: new Date(roomData.created_at),
-          admin: roomData.admin_id,
-          participants: participantsData?.map(p => ({
-            id: p.user_id,
-            name: p.user_name,
-            isAdmin: p.is_admin,
-            joinedAt: new Date(p.joined_at)
-          })) || [],
-          messages: messagesData?.map(m => ({
-            id: m.id,
-            senderId: m.sender_id,
-            senderName: m.sender_name,
-            content: m.content,
-            timestamp: new Date(m.created_at),
-            isEncrypted: m.is_encrypted,
-            isSystemMessage: m.is_system_message
-          })) || [],
-          encryptionKey: sessionStorage.getItem(`room_${roomId}_key`) || undefined
-        };
-        
-        // If admin, fetch join requests
-        if (newRoom.admin === user.id) {
-          await fetchJoinRequests();
+        if (participantError) {
+          console.error("Error checking participant:", participantError);
         }
         
-        // Set current room
-        setCurrentRoom(newRoom);
-        return true;
+        // If user is already a participant, fetch the room data without creating a new entry
+        if (existingParticipant && existingParticipant.length > 0) {
+          console.log("User is already a participant");
+          
+          // Fetch all messages for this room
+          const { data: messagesData } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('room_id', roomId)
+            .order('created_at', { ascending: true });
+          
+          // Fetch all participants
+          const { data: participantsData } = await supabase
+            .from('participants')
+            .select('*')
+            .eq('room_id', roomId);
+          
+          // Create room object for the UI
+          const newRoom: Room = {
+            id: roomId,
+            password: password,
+            name: roomData.name,
+            createdAt: new Date(roomData.created_at),
+            admin: roomData.admin_id,
+            participants: participantsData?.map(p => ({
+              id: p.user_id,
+              name: p.user_name,
+              isAdmin: p.is_admin,
+              joinedAt: new Date(p.joined_at)
+            })) || [],
+            messages: messagesData?.map(m => ({
+              id: m.id,
+              senderId: m.sender_id,
+              senderName: m.sender_name,
+              content: m.content,
+              timestamp: new Date(m.created_at),
+              isEncrypted: m.is_encrypted,
+              isSystemMessage: m.is_system_message
+            })) || [],
+            encryptionKey: sessionStorage.getItem(`room_${roomId}_key`) || undefined
+          };
+          
+          // If admin, fetch join requests
+          if (newRoom.admin === user.id) {
+            await fetchJoinRequests();
+          }
+          
+          // Set current room
+          setCurrentRoom(newRoom);
+          return true;
+        }
+      } catch (error) {
+        console.error("Error checking participant status:", error);
       }
       
       // If user is admin, they can join directly
-      const { error: participantError } = await supabase
+      const { error: addParticipantError } = await supabase
         .from('participants')
         .insert({
           room_id: roomId,
@@ -677,8 +685,8 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           is_admin: roomData.admin_id === user.id
         });
       
-      if (participantError) {
-        console.error('Error adding participant:', participantError);
+      if (addParticipantError) {
+        console.error('Error adding participant:', addParticipantError);
         toast({
           title: 'Error',
           description: 'Failed to join room. Please try again.',
@@ -760,6 +768,11 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       return true;
     } catch (error) {
       console.error("Error in joinRoom:", error);
+      toast({
+        title: "Error",
+        description: "Failed to join room due to a technical error. Please try again.",
+        variant: "destructive"
+      });
       return false;
     }
   };
