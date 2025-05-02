@@ -4,7 +4,6 @@ import { generateRandomId } from '../utils/crypto';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '../hooks/use-toast';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
-import { useNavigate } from 'react-router-dom';
 
 export interface Message {
   id: string;
@@ -82,7 +81,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
   const [availableRooms, setAvailableRooms] = useState<{ id: string; name: string }[]>([]);
   const { toast } = useToast();
-  const navigate = useNavigate();
 
   // Subscribe to room updates
   useEffect(() => {

@@ -17,23 +17,22 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <UserProvider>
-        <RoomProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <RoomProvider>
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/room/:roomId" element={<ChatRoom />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </RoomProvider>
+            </RoomProvider>
+          </BrowserRouter>
+        </TooltipProvider>
       </UserProvider>
     </ThemeProvider>
   </QueryClientProvider>
 );
 
 export default App;
-
