@@ -34,6 +34,7 @@ export interface Room {
   messages: Message[];
   encryptionKey?: string;
   joinRequests?: JoinRequest[];
+  pendingApproval?: boolean; // Flag to indicate if the user is pending approval
 }
 
 interface PrivateChat {
@@ -81,6 +82,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
   const [availableRooms, setAvailableRooms] = useState<{ id: string; name: string }[]>([]);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   // Subscribe to room updates
   useEffect(() => {
@@ -327,6 +329,28 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     }
   };
 
+  // Check if user has a pending join request
+  const checkPendingJoinRequest = async (roomId: string, userId: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .from('join_requests')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('user_id', userId)
+        .single();
+      
+      if (error) {
+        console.log("No pending join request found");
+        return false;
+      }
+      
+      return data !== null;
+    } catch (error) {
+      console.error("Error checking pending join request:", error);
+      return false;
+    }
+  };
+
   // Create a new room
   const createRoom = async (name: string, adminId: string, adminName: string): Promise<Room> => {
     const roomId = generateRandomId(16);
@@ -433,13 +457,16 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         .select('*')
         .eq('room_id', roomId)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
         
       if (existingParticipant) {
         toast({
           title: 'Already a participant',
           description: 'You are already in this room.',
         });
+        
+        // If user is already a participant, fetch the room data
+        await joinRoom(roomId, password, user);
         return true;
       }
       
@@ -449,14 +476,28 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         .select('*')
         .eq('room_id', roomId)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
         
       if (existingRequest) {
         toast({
           title: 'Request pending',
           description: 'Your join request is already pending approval.',
         });
-        return false;
+        
+        // Set current room with pending approval flag
+        const newRoom: Room = {
+          id: roomId,
+          password: password,
+          name: roomData.name,
+          createdAt: new Date(roomData.created_at),
+          admin: roomData.admin_id,
+          participants: [],
+          messages: [],
+          pendingApproval: true
+        };
+        
+        setCurrentRoom(newRoom);
+        return true;
       }
       
       // Add join request
@@ -483,6 +524,19 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         description: 'Waiting for admin approval to join the room.',
       });
       
+      // Set current room with pending approval flag
+      const newRoom: Room = {
+        id: roomId,
+        password: password,
+        name: roomData.name,
+        createdAt: new Date(roomData.created_at),
+        admin: roomData.admin_id,
+        participants: [],
+        messages: [],
+        pendingApproval: true
+      };
+      
+      setCurrentRoom(newRoom);
       return true;
     } catch (error) {
       console.error("Error in requestToJoinRoom:", error);
@@ -602,26 +656,68 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       
       console.log("Room found:", roomData);
       
-      // Check if admin or if approval is not required
+      // Check if admin or if approval is required
       if (roomData.admin_id !== user.id) {
-        // Request to join instead
-        return await requestToJoinRoom(roomId, password, user);
+        // Check if user is already a participant
+        const { data: existingParticipant, error: participantError } = await supabase
+          .from('participants')
+          .select('*')
+          .eq('room_id', roomId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        
+        if (participantError) {
+          console.log("Error checking participant:", participantError);
+        }
+        
+        // If not admin and not already a participant, request to join
+        if (!existingParticipant) {
+          // Check if there's a pending join request
+          const hasPendingRequest = await checkPendingJoinRequest(roomId, user.id);
+          
+          if (hasPendingRequest) {
+            toast({
+              title: 'Request pending',
+              description: 'Your join request is awaiting admin approval.',
+            });
+            
+            // Set current room with pending approval flag
+            const newRoom: Room = {
+              id: roomId,
+              password: password,
+              name: roomData.name,
+              createdAt: new Date(roomData.created_at),
+              admin: roomData.admin_id,
+              participants: [],
+              messages: [],
+              pendingApproval: true
+            };
+            
+            setCurrentRoom(newRoom);
+            return true;
+          }
+          
+          // Request to join instead
+          return await requestToJoinRoom(roomId, password, user);
+        }
       }
       
+      // User is admin or already a participant
       try {
         // Check if already a participant
         const { data: existingParticipant, error: participantError } = await supabase
           .from('participants')
           .select('*')
           .eq('room_id', roomId)
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .maybeSingle();
         
-        if (participantError) {
+        if (participantError && participantError.code !== 'PGRST116') {
           console.error("Error checking participant:", participantError);
         }
         
         // If user is already a participant, fetch the room data without creating a new entry
-        if (existingParticipant && existingParticipant.length > 0) {
+        if (existingParticipant) {
           console.log("User is already a participant");
           
           // Fetch all messages for this room
@@ -978,9 +1074,3 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     leaveRoom,
     sendMessage,
     sendPrivateMessage,
-    availableRooms,
-    fetchJoinRequests
-  };
-
-  return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
-};
