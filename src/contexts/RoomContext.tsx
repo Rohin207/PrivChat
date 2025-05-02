@@ -1074,3 +1074,13 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     leaveRoom,
     sendMessage,
     sendPrivateMessage,
+    availableRooms,
+    fetchJoinRequests,
+  };
+
+  return (
+    <RoomContext.Provider value={value}>
+      {children}
+    </RoomContext.Provider>
+  );
+};
