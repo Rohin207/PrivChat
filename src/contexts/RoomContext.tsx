@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
@@ -240,7 +239,8 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   // Fetch available rooms
   const fetchAvailableRooms = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch all rooms first
+      const { data: allRooms, error } = await supabase
         .from('rooms')
         .select('id, name')
         .order('created_at', { ascending: false });
@@ -250,17 +250,42 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         return;
       }
 
-      // Filter out rooms with no participants
+      // Filter active rooms and delete empty ones
       const activeRooms = [];
       
-      for (const room of data || []) {
-        const { data: participantsData } = await supabase
+      for (const room of allRooms || []) {
+        const { data: participantsData, error: participantsError } = await supabase
           .from('participants')
           .select('count')
           .eq('room_id', room.id);
           
-        if (participantsData && participantsData.length > 0) {
+        // Check if this room has participants
+        const hasParticipants = participantsData && participantsData.length > 0;
+        
+        if (hasParticipants) {
+          // Room has participants, keep it
           activeRooms.push(room);
+        } else {
+          // Room is empty, delete it permanently
+          console.log("Deleting empty room:", room.id);
+          
+          // Delete all messages for this room
+          await supabase
+            .from('messages')
+            .delete()
+            .eq('room_id', room.id);
+          
+          // Delete all join requests for this room
+          await supabase
+            .from('join_requests')
+            .delete()
+            .eq('room_id', room.id);
+            
+          // Finally delete the room itself
+          await supabase
+            .from('rooms')
+            .delete()
+            .eq('id', room.id);
         }
       }
       

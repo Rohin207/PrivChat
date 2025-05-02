@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, LogIn, Heart, Sparkles, Search, Trash2 } from "lucide-react";
+import { Plus, LogIn, Heart, Sparkles, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,6 @@ import { useRoom } from "@/contexts/RoomContext";
 import { generateRandomId } from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { supabase } from "@/integrations/supabase/client";
 
 const HomePage = () => {
   const navigate = useNavigate();
@@ -23,7 +22,6 @@ const HomePage = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [isBrowseModalOpen, setIsBrowseModalOpen] = useState(false);
-  const [isDeletingRooms, setIsDeletingRooms] = useState(false);
   
   const [name, setName] = useState("");
   const [roomName, setRoomName] = useState("");
@@ -148,97 +146,6 @@ const HomePage = () => {
     setRoomId(id);
     setIsBrowseModalOpen(false);
     setIsJoinModalOpen(true);
-  };
-
-  // New function to delete all rooms
-  const handleDeleteAllRooms = async () => {
-    try {
-      setIsDeletingRooms(true);
-      
-      // First delete all messages
-      const { error: messagesError } = await supabase
-        .from('messages')
-        .delete()
-        .neq('sender_id', 'impossible-id'); // Delete all messages
-      
-      if (messagesError) {
-        console.error("Error deleting messages:", messagesError);
-        toast({
-          title: "Error",
-          description: "Failed to delete messages.",
-          variant: "destructive"
-        });
-        setIsDeletingRooms(false);
-        return;
-      }
-      
-      // Then delete all participants
-      const { error: participantsError } = await supabase
-        .from('participants')
-        .delete()
-        .neq('user_id', 'impossible-id'); // Delete all participants
-      
-      if (participantsError) {
-        console.error("Error deleting participants:", participantsError);
-        toast({
-          title: "Error",
-          description: "Failed to delete participants.",
-          variant: "destructive"
-        });
-        setIsDeletingRooms(false);
-        return;
-      }
-      
-      // Delete all join requests
-      const { error: joinRequestsError } = await supabase
-        .from('join_requests')
-        .delete()
-        .neq('user_id', 'impossible-id'); // Delete all join requests
-      
-      if (joinRequestsError) {
-        console.error("Error deleting join requests:", joinRequestsError);
-        toast({
-          title: "Error",
-          description: "Failed to delete join requests.",
-          variant: "destructive"
-        });
-        setIsDeletingRooms(false);
-        return;
-      }
-      
-      // Finally, delete all rooms
-      const { error: roomsError } = await supabase
-        .from('rooms')
-        .delete()
-        .neq('id', 'impossible-id'); // Delete all rooms
-      
-      if (roomsError) {
-        console.error("Error deleting rooms:", roomsError);
-        toast({
-          title: "Error",
-          description: "Failed to delete rooms.",
-          variant: "destructive"
-        });
-        setIsDeletingRooms(false);
-        return;
-      }
-      
-      toast({
-        title: "Success",
-        description: "All rooms have been deleted.",
-      });
-      
-      setIsDeletingRooms(false);
-      setIsBrowseModalOpen(false);
-    } catch (error) {
-      console.error("Error in handleDeleteAllRooms:", error);
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred.",
-        variant: "destructive"
-      });
-      setIsDeletingRooms(false);
-    }
   };
 
   return (
@@ -454,24 +361,13 @@ const HomePage = () => {
             )}
           </div>
           
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <Button 
-              variant="destructive" 
-              onClick={handleDeleteAllRooms}
-              disabled={isDeletingRooms || availableRooms.length === 0}
-              className="w-full sm:w-auto flex items-center justify-center gap-1"
-            >
-              <Trash2 className="w-4 h-4" />
-              {isDeletingRooms ? "Deleting..." : "Clear All Rooms"}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBrowseModalOpen(false)}>
+              Cancel
             </Button>
-            <div className="flex-1 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsBrowseModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => setIsCreateModalOpen(true)}>
-                Create New Room
-              </Button>
-            </div>
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              Create New Room
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
