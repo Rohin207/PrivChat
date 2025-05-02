@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
@@ -604,6 +605,66 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       if (roomData.admin_id !== user.id) {
         // Request to join instead
         return await requestToJoinRoom(roomId, password, user);
+      }
+      
+      // Check if already a participant
+      const { data: existingParticipant } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('user_id', user.id)
+        .single();
+      
+      // If user is already a participant, fetch the room data without creating a new entry
+      if (existingParticipant) {
+        console.log("User is already a participant");
+        
+        // Fetch all messages for this room
+        const { data: messagesData } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('room_id', roomId)
+          .order('created_at', { ascending: true });
+        
+        // Fetch all participants
+        const { data: participantsData } = await supabase
+          .from('participants')
+          .select('*')
+          .eq('room_id', roomId);
+        
+        // Create room object for the UI
+        const newRoom: Room = {
+          id: roomId,
+          password: password,
+          name: roomData.name,
+          createdAt: new Date(roomData.created_at),
+          admin: roomData.admin_id,
+          participants: participantsData?.map(p => ({
+            id: p.user_id,
+            name: p.user_name,
+            isAdmin: p.is_admin,
+            joinedAt: new Date(p.joined_at)
+          })) || [],
+          messages: messagesData?.map(m => ({
+            id: m.id,
+            senderId: m.sender_id,
+            senderName: m.sender_name,
+            content: m.content,
+            timestamp: new Date(m.created_at),
+            isEncrypted: m.is_encrypted,
+            isSystemMessage: m.is_system_message
+          })) || [],
+          encryptionKey: sessionStorage.getItem(`room_${roomId}_key`) || undefined
+        };
+        
+        // If admin, fetch join requests
+        if (newRoom.admin === user.id) {
+          await fetchJoinRequests();
+        }
+        
+        // Set current room
+        setCurrentRoom(newRoom);
+        return true;
       }
       
       // If user is admin, they can join directly

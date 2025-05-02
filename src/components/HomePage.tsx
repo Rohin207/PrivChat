@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, LogIn, Heart, Sparkles, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
@@ -238,6 +238,9 @@ const HomePage = () => {
         <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Create a New Room</DialogTitle>
+            <DialogDescription>
+              Create a new encrypted chat room and share the details with others.
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
@@ -278,6 +281,9 @@ const HomePage = () => {
         <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Join a Room</DialogTitle>
+            <DialogDescription>
+              Enter the room credentials to join an existing chat room.
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
@@ -333,6 +339,9 @@ const HomePage = () => {
         <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
             <DialogTitle>Available Rooms</DialogTitle>
+            <DialogDescription>
+              Select a room to join from the list below. You'll still need the password to enter.
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
