@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +5,7 @@ import { Trash2, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
+import AdminAuth from "@/components/AdminAuth";
 
 interface Room {
   id: string;
@@ -18,9 +18,17 @@ const Admin = () => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    fetchRooms();
+    // Check if previously authenticated
+    const adminAuth = localStorage.getItem("admin_authenticated");
+    if (adminAuth === "true") {
+      setIsAuthenticated(true);
+      fetchRooms();
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const fetchRooms = async () => {
@@ -131,6 +139,11 @@ const Admin = () => {
     }
   };
 
+  // Display auth screen if not authenticated
+  if (!isAuthenticated) {
+    return <AdminAuth onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="container mx-auto p-4">
       <div className="flex items-center justify-between mb-6">
@@ -141,6 +154,15 @@ const Admin = () => {
           </Button>
           <Button onClick={cleanupAllRooms} variant="destructive" disabled={loading}>
             Delete All Rooms
+          </Button>
+          <Button
+            onClick={() => {
+              localStorage.removeItem("admin_authenticated");
+              setIsAuthenticated(false);
+            }}
+            variant="destructive"
+          >
+            Logout
           </Button>
           <Button asChild variant="outline">
             <Link to="/">Back to Home</Link>
