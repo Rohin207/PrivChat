@@ -1,7 +1,6 @@
-
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
-import { generateRandomId } from '../utils/crypto';
+import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey } from '../utils/crypto';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '../hooks/use-toast';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
@@ -437,6 +436,9 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       
       console.log("Room created:", roomId, "with password:", roomPassword);
       
+      // Save encryption key to session storage
+      saveRoomEncryptionKey(roomId, encryptionKey);
+      
       // Create room object for the UI
       const newRoom: Room = {
         id: roomId,
@@ -751,57 +753,79 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           console.error("Error checking participant:", participantError);
         }
         
-        // If user is already a participant, fetch the room data without creating a new entry
-        if (existingParticipant) {
-          console.log("User is already a participant");
-          
-          // Fetch all messages for this room
-          const { data: messagesData } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('room_id', roomId)
-            .order('created_at', { ascending: true });
-          
-          // Fetch all participants
-          const { data: participantsData } = await supabase
-            .from('participants')
-            .select('*')
-            .eq('room_id', roomId);
-          
-          // Create room object for the UI
-          const newRoom: Room = {
-            id: roomId,
-            password: password,
-            name: roomData.name,
-            createdAt: new Date(roomData.created_at),
-            admin: roomData.admin_id,
-            participants: participantsData?.map(p => ({
-              id: p.user_id,
-              name: p.user_name,
-              isAdmin: p.is_admin,
-              joinedAt: new Date(p.joined_at)
-            })) || [],
-            messages: messagesData?.map(m => ({
-              id: m.id,
-              senderId: m.sender_id,
-              senderName: m.sender_name,
-              content: m.content,
-              timestamp: new Date(m.created_at),
-              isEncrypted: m.is_encrypted,
-              isSystemMessage: m.is_system_message
-            })) || [],
-            encryptionKey: sessionStorage.getItem(`room_${roomId}_key`) || undefined
-          };
-          
-          // If admin, fetch join requests
-          if (newRoom.admin === user.id) {
-            await fetchJoinRequests();
-          }
-          
-          // Set current room
-          setCurrentRoom(newRoom);
-          return true;
+        // Fetch all messages for this room
+        const { data: messagesData } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('room_id', roomId)
+          .order('created_at', { ascending: true });
+        
+        // Fetch all participants
+        const { data: participantsData } = await supabase
+          .from('participants')
+          .select('*')
+          .eq('room_id', roomId);
+        
+        // Get or generate encryption key
+        let encryptionKey = getRoomEncryptionKey(roomId);
+        
+        // If user is admin and doesn't have a saved encryption key, generate a new one
+        if (!encryptionKey && roomData.admin_id === user.id) {
+          encryptionKey = generateRandomId(32);
+          saveRoomEncryptionKey(roomId, encryptionKey);
         }
+        
+        // If we have an existing encryption key, show it in the room credentials
+        if (encryptionKey) {
+          console.log(`Using existing encryption key for room ${roomId}`);
+        } else {
+          // Prompt for encryption key if non-admin joining
+          const key = prompt("Please enter the room encryption key provided by the admin:");
+          if (key) {
+            encryptionKey = key;
+            saveRoomEncryptionKey(roomId, encryptionKey);
+          } else {
+            toast({
+              title: "Warning",
+              description: "No encryption key provided. You may not be able to read encrypted messages.",
+              variant: "warning"
+            });
+          }
+        }
+      
+        // Create room object for the UI
+        const newRoom: Room = {
+          id: roomId,
+          password: password,
+          name: roomData.name,
+          createdAt: new Date(roomData.created_at),
+          admin: roomData.admin_id,
+          participants: participantsData?.map(p => ({
+            id: p.user_id,
+            name: p.user_name,
+            isAdmin: p.is_admin,
+            joinedAt: new Date(p.joined_at)
+          })) || [],
+          messages: messagesData?.map(m => ({
+            id: m.id,
+            senderId: m.sender_id,
+            senderName: m.sender_name,
+            content: m.content,
+            timestamp: new Date(m.created_at),
+            isEncrypted: m.is_encrypted,
+            isSystemMessage: m.is_system_message
+          })) || [],
+          encryptionKey: encryptionKey || undefined
+        };
+        
+        // If admin, fetch join requests
+        if (newRoom.admin === user.id) {
+          await fetchJoinRequests();
+        }
+        
+        // Set current room
+        setCurrentRoom(newRoom);
+        return true;
       } catch (error) {
         console.error("Error checking participant status:", error);
       }
@@ -824,6 +848,13 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           variant: 'destructive'
         });
         return false;
+      }
+      
+      // Generate new encryption key for admin
+      let encryptionKey = getRoomEncryptionKey(roomId);
+      if (!encryptionKey && roomData.admin_id === user.id) {
+        encryptionKey = generateRandomId(32);
+        saveRoomEncryptionKey(roomId, encryptionKey);
       }
       
       // Add system message
@@ -886,7 +917,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           isEncrypted: m.is_encrypted,
           isSystemMessage: m.is_system_message
         })) || [],
-        encryptionKey: sessionStorage.getItem(`room_${roomId}_key`) || undefined
+        encryptionKey: encryptionKey
       };
       
       // If admin, fetch join requests

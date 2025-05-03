@@ -251,6 +251,21 @@ const ChatRoom = () => {
     
   const joinRequestCount = currentRoom.joinRequests?.length || 0;
 
+  // Add a new method to copy encryption key to clipboard
+  const copyEncryptionKey = async () => {
+    if (!currentRoom?.encryptionKey) return;
+    
+    try {
+      await navigator.clipboard.writeText(currentRoom.encryptionKey);
+      toast({
+        title: "Copied!",
+        description: "Encryption key copied to clipboard",
+      });
+    } catch (err) {
+      console.error("Failed to copy encryption key:", err);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -521,6 +536,36 @@ const ChatRoom = () => {
               <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
                 {currentRoom.password}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Encryption Key</label>
+                {currentRoom.encryptionKey && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={copyEncryptionKey}
+                  >
+                    Copy
+                  </Button>
+                )}
+              </div>
+              {currentRoom.encryptionKey ? (
+                <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
+                  {currentRoom.encryptionKey}
+                </div>
+              ) : (
+                <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground italic">
+                  No encryption key available. You may not be able to read encrypted messages.
+                </div>
+              )}
+              {currentRoom.admin === user?.id && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  As the admin, share this key with other participants so they can decrypt messages.
+                </p>
+              )}
             </div>
           </div>
           

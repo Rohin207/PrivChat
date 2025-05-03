@@ -21,6 +21,20 @@ export const generateRandomId = (length = 16): string => {
 };
 
 /**
+ * Save room encryption key to session storage
+ */
+export const saveRoomEncryptionKey = (roomId: string, key: string): void => {
+  sessionStorage.setItem(`room_${roomId}_key`, key);
+};
+
+/**
+ * Get room encryption key from session storage
+ */
+export const getRoomEncryptionKey = (roomId: string): string | null => {
+  return sessionStorage.getItem(`room_${roomId}_key`);
+};
+
+/**
  * Simple encryption function (For demo purposes only - not secure)
  * In a real application, use a proper end-to-end encryption library
  */
@@ -62,4 +76,3 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
     return encryptedMessage;
   }
 };
-
