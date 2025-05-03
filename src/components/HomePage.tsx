@@ -1,7 +1,8 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, LogIn, Heart, Sparkles, Search } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Plus, LogIn, Heart, Sparkles, Search, Settings } from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

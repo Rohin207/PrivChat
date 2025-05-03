@@ -9,6 +9,7 @@ import { UserProvider } from "./contexts/UserContext";
 import { RoomProvider } from "./contexts/RoomContext";
 import HomePage from "./components/HomePage";
 import ChatRoom from "./components/ChatRoom";
+import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,13 +22,19 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <RoomProvider>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/room/:roomId" element={<ChatRoom />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </RoomProvider>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/admin" element={<Admin />} />
+              <Route
+                path="/room/:roomId"
+                element={
+                  <RoomProvider>
+                    <ChatRoom />
+                  </RoomProvider>
+                }
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
           </BrowserRouter>
         </TooltipProvider>
       </UserProvider>
