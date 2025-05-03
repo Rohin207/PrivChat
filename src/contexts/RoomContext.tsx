@@ -788,7 +788,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
             toast({
               title: "Warning",
               description: "No encryption key provided. You may not be able to read encrypted messages.",
-              variant: "warning"
+              variant: "destructive" // Changed from "warning" to "destructive" to fix type error
             });
           }
         }
