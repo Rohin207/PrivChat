@@ -23,7 +23,14 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<HomePage />} />
+              <Route 
+                path="/" 
+                element={
+                  <RoomProvider>
+                    <HomePage />
+                  </RoomProvider>
+                } 
+              />
               <Route path="/admin" element={<Admin />} />
               <Route
                 path="/room/:roomId"
