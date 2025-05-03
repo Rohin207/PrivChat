@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId } from '../utils/crypto';
@@ -250,9 +251,10 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         return;
       }
 
-      // Filter active rooms and delete empty ones
+      // Initialize an array for active rooms
       const activeRooms = [];
       
+      // Check each room for participants
       for (const room of allRooms || []) {
         const { data: participantsData, error: participantsError } = await supabase
           .from('participants')
@@ -266,32 +268,67 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           // Room has participants, keep it
           activeRooms.push(room);
         } else {
-          // Room is empty, delete it permanently
-          console.log("Deleting empty room:", room.id);
+          console.log("Found empty room, deleting:", room.id);
           
-          // Delete all messages for this room
-          await supabase
-            .from('messages')
-            .delete()
-            .eq('room_id', room.id);
-          
-          // Delete all join requests for this room
-          await supabase
-            .from('join_requests')
-            .delete()
-            .eq('room_id', room.id);
-            
-          // Finally delete the room itself
-          await supabase
-            .from('rooms')
-            .delete()
-            .eq('id', room.id);
+          // Clean up the empty room
+          await cleanupRoom(room.id);
         }
       }
       
       setAvailableRooms(activeRooms);
     } catch (error) {
       console.error("Error in fetchAvailableRooms:", error);
+    }
+  };
+  
+  // Helper function to clean up a room and its related data
+  const cleanupRoom = async (roomId: string) => {
+    try {
+      console.log("Cleaning up room:", roomId);
+      
+      // Delete all messages for this room
+      const { error: messagesError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('room_id', roomId);
+      
+      if (messagesError) {
+        console.error("Error deleting messages:", messagesError);
+      }
+      
+      // Delete all join requests for this room
+      const { error: joinRequestsError } = await supabase
+        .from('join_requests')
+        .delete()
+        .eq('room_id', roomId);
+      
+      if (joinRequestsError) {
+        console.error("Error deleting join requests:", joinRequestsError);
+      }
+      
+      // Delete all participants for this room
+      const { error: participantsError } = await supabase
+        .from('participants')
+        .delete()
+        .eq('room_id', roomId);
+      
+      if (participantsError) {
+        console.error("Error deleting participants:", participantsError);
+      }
+      
+      // Finally delete the room itself
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', roomId);
+      
+      if (roomError) {
+        console.error("Error deleting room:", roomError);
+      }
+      
+      console.log("Room cleanup complete:", roomId);
+    } catch (error) {
+      console.error("Error in cleanupRoom:", error);
     }
   };
 
@@ -900,33 +937,20 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           is_system_message: true
         });
       
-      // Check participant count
-      const { data: participants } = await supabase
+      // Check participant count after user leaves
+      const { data: participants, error } = await supabase
         .from('participants')
         .select('*')
         .eq('room_id', currentRoom.id);
       
-      // If no participants left, delete the room
+      if (error) {
+        console.error("Error checking participants:", error);
+      }
+      
+      // If no participants left, delete the room immediately
       if (!participants || participants.length === 0) {
-        console.log("No participants left, deleting room:", currentRoom.id);
-        
-        // Delete all messages
-        await supabase
-          .from('messages')
-          .delete()
-          .eq('room_id', currentRoom.id);
-        
-        // Delete all join requests
-        await supabase
-          .from('join_requests')
-          .delete()
-          .eq('room_id', currentRoom.id);
-        
-        // Delete the room itself
-        await supabase
-          .from('rooms')
-          .delete()
-          .eq('id', currentRoom.id);
+        console.log("No participants left, cleaning up room:", currentRoom.id);
+        await cleanupRoom(currentRoom.id);
         
         // Remove from available rooms list
         setAvailableRooms(prev => prev.filter(room => room.id !== currentRoom.id));

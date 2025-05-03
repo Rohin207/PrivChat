@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -98,6 +97,7 @@ const ChatRoom = () => {
   
   const [message, setMessage] = useState("");
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
+  const [showLeaveAlert, setShowLeaveAlert] = useState(false);
   const [showParticipants, setShowParticipants] = useState(false);
   const [showPrivateChat, setShowPrivateChat] = useState(false);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
@@ -107,6 +107,27 @@ const ChatRoom = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
+  
+  // Handle window/tab close to leave room
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (currentRoom) {
+        // No need to show a confirmation dialog here, as browsers standardize this message
+        e.preventDefault();
+        e.returnValue = '';
+        
+        // Try to leave room when user is about to leave
+        // Note: This might not complete before the page unloads
+        leaveRoom();
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [currentRoom, leaveRoom]);
   
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -182,6 +203,10 @@ const ChatRoom = () => {
     navigate('/');
   };
   
+  const handleLeaveRoomWithConfirmation = () => {
+    setShowLeaveAlert(true);
+  };
+  
   const handlePrivateChat = (userId: string) => {
     setSelectedUser(userId);
     setShowPrivateChat(true);
@@ -234,7 +259,7 @@ const ChatRoom = () => {
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={handleLeaveRoom}
+            onClick={handleLeaveRoomWithConfirmation}
             className="rounded-full"
           >
             <ArrowLeft className="h-5 w-5" />
@@ -561,6 +586,24 @@ const ChatRoom = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Leave Room Alert Dialog */}
+      <AlertDialog open={showLeaveAlert} onOpenChange={setShowLeaveAlert}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to leave?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be removed from the room. If you are the last person to leave, the room will be deleted permanently.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleLeaveRoom}>
+              Leave Room
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
