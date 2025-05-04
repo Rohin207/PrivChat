@@ -24,14 +24,26 @@ export const generateRandomId = (length = 16): string => {
  * Save room encryption key to session storage
  */
 export const saveRoomEncryptionKey = (roomId: string, key: string): void => {
-  sessionStorage.setItem(`room_${roomId}_key`, key);
+  try {
+    sessionStorage.setItem(`room_${roomId}_key`, key);
+    console.log("Encryption key saved successfully for room:", roomId);
+  } catch (error) {
+    console.error("Error saving encryption key:", error);
+  }
 };
 
 /**
  * Get room encryption key from session storage
  */
 export const getRoomEncryptionKey = (roomId: string): string | null => {
-  return sessionStorage.getItem(`room_${roomId}_key`);
+  try {
+    const key = sessionStorage.getItem(`room_${roomId}_key`);
+    console.log("Retrieved encryption key for room:", roomId, key ? "Key found" : "No key found");
+    return key;
+  } catch (error) {
+    console.error("Error getting encryption key:", error);
+    return null;
+  }
 };
 
 /**

@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -263,14 +264,14 @@ const ChatRoom = () => {
     }
   }, [currentRoom, showEncryptionPrompt]);
 
-  // Add function to handle encryption key submission
+  // Fix the encryption key submission handler
   const handleEncryptionKeySubmit = () => {
     if (!encryptionKeyInput.trim() || !currentRoom) return;
     
     // Save the encryption key
     saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
     
-    // Update the current room
+    // Update the current room state with the encryption key
     setCurrentRoom({
       ...currentRoom,
       encryptionKey: encryptionKeyInput
