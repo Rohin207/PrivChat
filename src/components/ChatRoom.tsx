@@ -27,7 +27,7 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { encryptMessage, decryptMessage, promptForEncryptionKey, saveRoomEncryptionKey } from "@/utils/crypto";
+import { encryptMessage, decryptMessage, promptForEncryptionKey, saveRoomEncryptionKey, getRoomEncryptionKey } from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -119,6 +119,9 @@ const ChatRoom = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
+
+  // Add a state to track if we need to force refresh messages
+  const [messageRefreshTrigger, setMessageRefreshTrigger] = useState(0);
   
   // Handle window/tab close to leave room
   useEffect(() => {
@@ -264,6 +267,15 @@ const ChatRoom = () => {
     }
   }, [currentRoom, showEncryptionPrompt]);
 
+  // New effect to refresh message decryption when encryption key changes
+  useEffect(() => {
+    if (currentRoom && currentRoom.encryptionKey) {
+      // Force message re-rendering when encryption key changes
+      console.log("Encryption key changed, refreshing messages");
+      setMessageRefreshTrigger(prev => prev + 1);
+    }
+  }, [currentRoom?.encryptionKey]);
+  
   // Fix the encryption key submission handler
   const handleEncryptionKeySubmit = () => {
     if (!encryptionKeyInput.trim() || !currentRoom) {
@@ -294,6 +306,9 @@ const ChatRoom = () => {
       ...currentRoom,
       encryptionKey: encryptionKeyInput
     });
+    
+    // Force message decryption refresh
+    setMessageRefreshTrigger(prev => prev + 1);
     
     toast({
       title: "Encryption Key Saved",
@@ -336,6 +351,7 @@ const ChatRoom = () => {
     }
   };
 
+  // Clean up the render portion to make sure encryption key is properly used
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -458,11 +474,11 @@ const ChatRoom = () => {
             </form>
           </div>
         ) : (
-          // Room Chat
-          <div>
+          // Room Chat - this is where we use the encryption key to decrypt messages
+          <div key={messageRefreshTrigger}>
             {currentRoom.messages.map(message => (
               <ChatMessage 
-                key={message.id} 
+                key={`${message.id}-${messageRefreshTrigger}`}
                 message={message} 
                 encryptionKey={currentRoom.encryptionKey}
               />

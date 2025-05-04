@@ -116,6 +116,12 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
       return encryptedMessage;
     }
     
+    // Validate that the message is actually base64 encoded before trying to decode
+    if (!needsDecryption(encryptedMessage)) {
+      console.warn("Message doesn't appear to be encrypted, returning as is");
+      return encryptedMessage;
+    }
+    
     const encrypted = atob(encryptedMessage);
     return encrypted
       .split('')
@@ -125,7 +131,7 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
       .join('');
   } catch (e) {
     console.error('Decryption failed:', e);
-    return encryptedMessage;
+    return `[Decryption failed: ${e.message}]`;
   }
 };
 
