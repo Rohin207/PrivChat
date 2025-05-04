@@ -27,7 +27,7 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { encryptMessage, decryptMessage } from "@/utils/crypto";
+import { encryptMessage, decryptMessage, promptForEncryptionKey, saveRoomEncryptionKey } from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -39,11 +39,22 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
   const userId = sessionStorage.getItem('userId');
   const isCurrentUser = message.senderId === userId;
   const isSystem = message.senderId === 'system' || message.isSystemMessage;
+  const { toast } = useToast();
   
   // Decrypt the message if it's encrypted and we have the key
-  const content = message.isEncrypted && encryptionKey 
-    ? decryptMessage(message.content, encryptionKey) 
-    : message.content;
+  let content = message.content;
+  
+  // Only try to decrypt if the message is encrypted and we have an encryption key
+  if (message.isEncrypted && encryptionKey) {
+    try {
+      content = decryptMessage(message.content, encryptionKey);
+    } catch (error) {
+      console.error("Failed to decrypt message:", error);
+      content = "⚠️ [Encrypted message - unable to decrypt]";
+    }
+  } else if (message.isEncrypted && !encryptionKey) {
+    content = "🔒 [Encrypted message - encryption key required]";
+  }
   
   if (isSystem) {
     return (
@@ -235,6 +246,44 @@ const ChatRoom = () => {
     await rejectJoinRequest(request);
   };
 
+  // Add a new state for the encryption key prompt
+  const [showEncryptionPrompt, setShowEncryptionPrompt] = useState(false);
+  const [encryptionKeyInput, setEncryptionKeyInput] = useState("");
+  
+  // Add a new effect to check for encryption key
+  useEffect(() => {
+    if (!currentRoom) return;
+    
+    // If room has messages that need encryption key and we don't have one, prompt for it
+    const hasEncryptedMessages = currentRoom.messages.some(m => m.isEncrypted);
+    const hasEncryptionKey = !!currentRoom.encryptionKey;
+    
+    if (hasEncryptedMessages && !hasEncryptionKey && !showEncryptionPrompt) {
+      setShowEncryptionPrompt(true);
+    }
+  }, [currentRoom, showEncryptionPrompt]);
+
+  // Add function to handle encryption key submission
+  const handleEncryptionKeySubmit = () => {
+    if (!encryptionKeyInput.trim() || !currentRoom) return;
+    
+    // Save the encryption key
+    saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+    
+    // Update the current room
+    setCurrentRoom({
+      ...currentRoom,
+      encryptionKey: encryptionKeyInput
+    });
+    
+    toast({
+      title: "Encryption Key Saved",
+      description: "You can now decrypt messages in this room."
+    });
+    
+    setShowEncryptionPrompt(false);
+  };
+  
   // If not room or not a participant, show loading
   if (!currentRoom) {
     return (
@@ -559,6 +608,14 @@ const ChatRoom = () => {
               ) : (
                 <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground italic">
                   No encryption key available. You may not be able to read encrypted messages.
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-2 w-full"
+                    onClick={() => setShowEncryptionPrompt(true)}
+                  >
+                    Enter Encryption Key
+                  </Button>
                 </div>
               )}
               {currentRoom.admin === user?.id && (
@@ -571,6 +628,40 @@ const ChatRoom = () => {
           
           <DialogFooter>
             <Button onClick={() => setShowCredentials(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Encryption Key Dialog */}
+      <Dialog open={showEncryptionPrompt} onOpenChange={setShowEncryptionPrompt}>
+        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
+          <DialogHeader>
+            <DialogTitle>Enter Encryption Key</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This room contains encrypted messages. Please enter the encryption key provided by the room admin to decrypt them.
+            </p>
+            
+            <Input 
+              value={encryptionKeyInput} 
+              onChange={(e) => setEncryptionKeyInput(e.target.value)} 
+              placeholder="Paste encryption key here" 
+              autoFocus
+            />
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEncryptionPrompt(false)}>
+              Skip
+            </Button>
+            <Button 
+              onClick={handleEncryptionKeySubmit}
+              disabled={!encryptionKeyInput.trim()}
+            >
+              Save Key
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -35,6 +35,22 @@ export const getRoomEncryptionKey = (roomId: string): string | null => {
 };
 
 /**
+ * Prompt user for encryption key
+ * Returns the entered key or null if canceled
+ */
+export const promptForEncryptionKey = (roomId: string): string | null => {
+  const keyPrompt = prompt("Please enter the room encryption key provided by the admin:");
+  
+  if (keyPrompt && keyPrompt.trim() !== '') {
+    // Save the key to session storage for future use
+    saveRoomEncryptionKey(roomId, keyPrompt.trim());
+    return keyPrompt.trim();
+  }
+  
+  return null;
+};
+
+/**
  * Simple encryption function (For demo purposes only - not secure)
  * In a real application, use a proper end-to-end encryption library
  */
@@ -75,4 +91,13 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
     console.error('Decryption failed:', e);
     return encryptedMessage;
   }
+};
+
+/**
+ * Helper to determine if a message needs decryption
+ */
+export const needsDecryption = (message: string): boolean => {
+  // A simple check to see if the message looks like base64 encoded
+  const base64Regex = /^[A-Za-z0-9+/=]+$/;
+  return base64Regex.test(message) && message.length % 4 === 0;
 };

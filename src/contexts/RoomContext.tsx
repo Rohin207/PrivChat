@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
-import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey } from '../utils/crypto';
+import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey, promptForEncryptionKey } from '../utils/crypto';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '../hooks/use-toast';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
@@ -773,22 +773,31 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         if (!encryptionKey && roomData.admin_id === user.id) {
           encryptionKey = generateRandomId(32);
           saveRoomEncryptionKey(roomId, encryptionKey);
-        }
-        
-        // If we have an existing encryption key, show it in the room credentials
-        if (encryptionKey) {
-          console.log(`Using existing encryption key for room ${roomId}`);
-        } else {
-          // Prompt for encryption key if non-admin joining
-          const key = prompt("Please enter the room encryption key provided by the admin:");
-          if (key) {
-            encryptionKey = key;
-            saveRoomEncryptionKey(roomId, encryptionKey);
-          } else {
+          
+          // Show toast with encryption key for admin
+          toast({
+            title: "Encryption Key Generated",
+            description: "Please share this key with participants so they can decrypt messages.",
+          });
+          
+          // Force admin to see the key
+          setTimeout(() => {
+            alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
+          }, 1000);
+        } else if (!encryptionKey) {
+          // Always prompt for encryption key for non-admin users
+          encryptionKey = promptForEncryptionKey(roomId);
+          
+          if (!encryptionKey) {
             toast({
               title: "Warning",
-              description: "No encryption key provided. You may not be able to read encrypted messages.",
-              variant: "destructive" // Changed from "warning" to "destructive" to fix type error
+              description: "No encryption key provided. You won't be able to read encrypted messages.",
+              variant: "destructive"
+            });
+          } else {
+            toast({
+              title: "Encryption Key Saved",
+              description: "You can now decrypt messages in this room.",
             });
           }
         }
@@ -855,6 +864,14 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       if (!encryptionKey && roomData.admin_id === user.id) {
         encryptionKey = generateRandomId(32);
         saveRoomEncryptionKey(roomId, encryptionKey);
+        
+        // Alert admin about the encryption key
+        setTimeout(() => {
+          alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
+        }, 1000);
+      } else if (!encryptionKey) {
+        // Always prompt for encryption key for non-admin users
+        encryptionKey = promptForEncryptionKey(roomId);
       }
       
       // Add system message
