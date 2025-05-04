@@ -23,12 +23,19 @@ export const generateRandomId = (length = 16): string => {
 /**
  * Save room encryption key to session storage
  */
-export const saveRoomEncryptionKey = (roomId: string, key: string): void => {
+export const saveRoomEncryptionKey = (roomId: string, key: string): boolean => {
   try {
+    if (!roomId || !key) {
+      console.error("Invalid roomId or key:", { roomId, keyLength: key?.length });
+      return false;
+    }
+    
     sessionStorage.setItem(`room_${roomId}_key`, key);
     console.log("Encryption key saved successfully for room:", roomId);
+    return true;
   } catch (error) {
     console.error("Error saving encryption key:", error);
+    return false;
   }
 };
 
@@ -37,6 +44,11 @@ export const saveRoomEncryptionKey = (roomId: string, key: string): void => {
  */
 export const getRoomEncryptionKey = (roomId: string): string | null => {
   try {
+    if (!roomId) {
+      console.error("Invalid roomId when getting encryption key");
+      return null;
+    }
+    
     const key = sessionStorage.getItem(`room_${roomId}_key`);
     console.log("Retrieved encryption key for room:", roomId, key ? "Key found" : "No key found");
     return key;
@@ -55,8 +67,10 @@ export const promptForEncryptionKey = (roomId: string): string | null => {
   
   if (keyPrompt && keyPrompt.trim() !== '') {
     // Save the key to session storage for future use
-    saveRoomEncryptionKey(roomId, keyPrompt.trim());
-    return keyPrompt.trim();
+    const saved = saveRoomEncryptionKey(roomId, keyPrompt.trim());
+    if (saved) {
+      return keyPrompt.trim();
+    }
   }
   
   return null;
@@ -70,6 +84,11 @@ export const encryptMessage = (message: string, key: string): string => {
   // In a real app, use WebCrypto API with proper encryption
   // This is just a simple XOR for demonstration
   try {
+    if (!message || !key) {
+      console.error("Cannot encrypt: missing message or key");
+      return message;
+    }
+    
     // For real encryption, use the Web Crypto API
     return btoa(
       message
@@ -92,6 +111,11 @@ export const encryptMessage = (message: string, key: string): string => {
 export const decryptMessage = (encryptedMessage: string, key: string): string => {
   // In a real app, use WebCrypto API with proper decryption
   try {
+    if (!encryptedMessage || !key) {
+      console.error("Cannot decrypt: missing message or key");
+      return encryptedMessage;
+    }
+    
     const encrypted = atob(encryptedMessage);
     return encrypted
       .split('')
@@ -110,6 +134,12 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
  */
 export const needsDecryption = (message: string): boolean => {
   // A simple check to see if the message looks like base64 encoded
-  const base64Regex = /^[A-Za-z0-9+/=]+$/;
-  return base64Regex.test(message) && message.length % 4 === 0;
+  try {
+    if (!message) return false;
+    const base64Regex = /^[A-Za-z0-9+/=]+$/;
+    return base64Regex.test(message) && message.length % 4 === 0;
+  } catch (e) {
+    console.error("Error checking if message needs decryption:", e);
+    return false;
+  }
 };

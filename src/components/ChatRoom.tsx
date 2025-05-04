@@ -266,10 +266,28 @@ const ChatRoom = () => {
 
   // Fix the encryption key submission handler
   const handleEncryptionKeySubmit = () => {
-    if (!encryptionKeyInput.trim() || !currentRoom) return;
+    if (!encryptionKeyInput.trim() || !currentRoom) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid encryption key",
+        variant: "destructive"
+      });
+      return;
+    }
     
-    // Save the encryption key
-    saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+    console.log("Saving encryption key:", encryptionKeyInput);
+    
+    // Save the encryption key to session storage
+    const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+    
+    if (!keySaved) {
+      toast({
+        title: "Error",
+        description: "Failed to save encryption key",
+        variant: "destructive"
+      });
+      return;
+    }
     
     // Update the current room state with the encryption key
     setCurrentRoom({
@@ -282,7 +300,9 @@ const ChatRoom = () => {
       description: "You can now decrypt messages in this room."
     });
     
+    // Close the dialog
     setShowEncryptionPrompt(false);
+    setEncryptionKeyInput("");
   };
   
   // If not room or not a participant, show loading
@@ -654,7 +674,13 @@ const ChatRoom = () => {
           </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEncryptionPrompt(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowEncryptionPrompt(false);
+                setEncryptionKeyInput("");
+              }}
+            >
               Skip
             </Button>
             <Button 
