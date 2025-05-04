@@ -30,8 +30,9 @@ export const saveRoomEncryptionKey = (roomId: string, key: string): boolean => {
       return false;
     }
     
-    sessionStorage.setItem(`room_${roomId}_key`, key);
-    console.log("Encryption key saved successfully for room:", roomId);
+    const keyName = `room_${roomId}_key`;
+    sessionStorage.setItem(keyName, key);
+    console.log(`Encryption key saved successfully for room ${roomId} with key name ${keyName}`);
     return true;
   } catch (error) {
     console.error("Error saving encryption key:", error);
@@ -49,8 +50,9 @@ export const getRoomEncryptionKey = (roomId: string): string | null => {
       return null;
     }
     
-    const key = sessionStorage.getItem(`room_${roomId}_key`);
-    console.log("Retrieved encryption key for room:", roomId, key ? "Key found" : "No key found");
+    const keyName = `room_${roomId}_key`;
+    const key = sessionStorage.getItem(keyName);
+    console.log(`Retrieved encryption key for room ${roomId} with key name ${keyName}: ${key ? "Key found" : "No key found"}`);
     return key;
   } catch (error) {
     console.error("Error getting encryption key:", error);
@@ -82,26 +84,54 @@ export const promptForEncryptionKey = (roomId: string): string | null => {
  */
 export const encryptMessage = (message: string, key: string): string => {
   // In a real app, use WebCrypto API with proper encryption
-  // This is just a simple XOR for demonstration
   try {
     if (!message || !key) {
       console.error("Cannot encrypt: missing message or key");
       return message;
     }
     
+    console.log(`Encrypting message of length ${message.length} with key ${key}`);
+    
     // For real encryption, use the Web Crypto API
-    return btoa(
-      message
-        .split('')
-        .map((char, i) => 
-          String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
-        )
-        .join('')
-    );
+    const encrypted = message
+      .split('')
+      .map((char, i) => 
+        String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+      )
+      .join('');
+    
+    const base64Encoded = btoa(encrypted);
+    console.log(`Encryption complete. Original length: ${message.length}, Encrypted length: ${base64Encoded.length}`);
+    
+    return base64Encoded;
   } catch (e) {
     console.error('Encryption failed:', e);
     return message;
   }
+};
+
+/**
+ * Check if a string is likely base64 encoded
+ */
+export const isBase64 = (str: string): boolean => {
+  if (!str || typeof str !== 'string') return false;
+  
+  try {
+    // Check if it matches base64 pattern
+    return /^[A-Za-z0-9+/=]+$/.test(str) && str.length % 4 === 0;
+  } catch (e) {
+    return false;
+  }
+};
+
+/**
+ * Helper to determine if a message needs decryption
+ */
+export const needsDecryption = (message: string): boolean => {
+  if (!message) return false;
+  
+  // A simple check to see if the message looks like base64 encoded
+  return isBase64(message);
 };
 
 /**
@@ -116,36 +146,32 @@ export const decryptMessage = (encryptedMessage: string, key: string): string =>
       return encryptedMessage;
     }
     
-    // Validate that the message is actually base64 encoded before trying to decode
+    console.log(`Attempting to decrypt message of length ${encryptedMessage.length} with key ${key}`);
+    
+    // Skip decryption if the message doesn't appear to be encrypted
     if (!needsDecryption(encryptedMessage)) {
       console.warn("Message doesn't appear to be encrypted, returning as is");
       return encryptedMessage;
     }
     
-    const encrypted = atob(encryptedMessage);
-    return encrypted
-      .split('')
-      .map((char, i) => 
-        String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
-      )
-      .join('');
+    try {
+      const encrypted = atob(encryptedMessage);
+      
+      const decrypted = encrypted
+        .split('')
+        .map((char, i) => 
+          String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+        )
+        .join('');
+      
+      console.log(`Decryption successful. Encrypted length: ${encryptedMessage.length}, Decrypted length: ${decrypted.length}`);
+      return decrypted;
+    } catch (e) {
+      console.error('Base64 decoding failed:', e);
+      return `[Decryption failed: Invalid base64]`;
+    }
   } catch (e) {
     console.error('Decryption failed:', e);
     return `[Decryption failed: ${e.message}]`;
-  }
-};
-
-/**
- * Helper to determine if a message needs decryption
- */
-export const needsDecryption = (message: string): boolean => {
-  // A simple check to see if the message looks like base64 encoded
-  try {
-    if (!message) return false;
-    const base64Regex = /^[A-Za-z0-9+/=]+$/;
-    return base64Regex.test(message) && message.length % 4 === 0;
-  } catch (e) {
-    console.error("Error checking if message needs decryption:", e);
-    return false;
   }
 };

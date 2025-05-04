@@ -276,7 +276,7 @@ const ChatRoom = () => {
     }
   }, [currentRoom?.encryptionKey]);
   
-  // Fix the encryption key submission handler
+  // Updated encryption key submission handler
   const handleEncryptionKeySubmit = () => {
     if (!encryptionKeyInput.trim() || !currentRoom) {
       toast({
@@ -302,22 +302,31 @@ const ChatRoom = () => {
     }
     
     // Update the current room state with the encryption key
-    setCurrentRoom({
-      ...currentRoom,
-      encryptionKey: encryptionKeyInput
-    });
-    
-    // Force message decryption refresh
-    setMessageRefreshTrigger(prev => prev + 1);
-    
-    toast({
-      title: "Encryption Key Saved",
-      description: "You can now decrypt messages in this room."
-    });
-    
-    // Close the dialog
-    setShowEncryptionPrompt(false);
-    setEncryptionKeyInput("");
+    if (setCurrentRoom) {
+      setCurrentRoom({
+        ...currentRoom,
+        encryptionKey: encryptionKeyInput
+      });
+      
+      // Force message decryption refresh
+      setMessageRefreshTrigger(prev => prev + 1);
+      
+      toast({
+        title: "Encryption Key Saved",
+        description: "Messages will now be decrypted with your key."
+      });
+      
+      // Close the dialog
+      setShowEncryptionPrompt(false);
+      setEncryptionKeyInput("");
+    } else {
+      console.error("setCurrentRoom is not defined");
+      toast({
+        title: "Error",
+        description: "Could not update room with encryption key",
+        variant: "destructive"
+      });
+    }
   };
   
   // If not room or not a participant, show loading
@@ -686,6 +695,13 @@ const ChatRoom = () => {
               onChange={(e) => setEncryptionKeyInput(e.target.value)} 
               placeholder="Paste encryption key here" 
               autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleEncryptionKeySubmit();
+                }
+              }}
+              className="font-mono"
             />
           </div>
           
