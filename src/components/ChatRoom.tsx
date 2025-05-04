@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -96,6 +95,7 @@ const ChatRoom = () => {
   const isMobile = useIsMobile();
   const { 
     currentRoom, 
+    setCurrentRoom,
     leaveRoom, 
     sendMessage, 
     privateChats, 
