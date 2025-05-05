@@ -1,3 +1,4 @@
+
 /**
  * This file contains utility functions for encryption and decryption using WebCrypto API.
  * It implements AES-GCM encryption with proper IV handling and key derivation.
@@ -233,7 +234,7 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
       return encryptedMessage;
     }
     
-    console.log(`Attempting to decrypt message of length ${encryptedMessage.length} with password`);
+    console.log(`Attempting to decrypt message of length ${encryptedMessage.length} with password length ${password.length}`);
     
     try {
       // Derive key from password

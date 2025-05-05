@@ -69,8 +69,17 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
       
       setIsDecrypting(true);
       try {
+        console.log(`Attempting to decrypt message with key length: ${encryptionKey.length}`);
         // Use the backward compatible decryption function
         const decrypted = await decryptMessageCompat(message.content, encryptionKey);
+        
+        // Log the result for debugging
+        if (decrypted.includes("[Decryption failed")) {
+          console.warn("Decryption failed:", decrypted);
+        } else {
+          console.log("Successfully decrypted message of length:", decrypted.length);
+        }
+        
         if (isMounted) setDecryptedContent(decrypted);
       } catch (error) {
         console.error("Failed to decrypt message:", error);
@@ -366,13 +375,16 @@ const ChatRoom = () => {
       // Find an encrypted message to test with
       const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
       
-      // Test if the key can decrypt a message
+      // If there's a message to test with, try decrypting it
       if (testMessage) {
         const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
         
-        // Check if the decryption seems successful (not an error message)
+        // Check if the decryption seems successful
         const seemsValid = !decrypted.includes("[Decryption failed") && 
-                           !decrypted.includes("[Could not decrypt");
+                          !decrypted.includes("[Could not decrypt");
+        
+        console.log("Decryption test result:", decrypted);
+        console.log("Decryption seems valid:", seemsValid);
         
         if (!seemsValid) {
           toast({

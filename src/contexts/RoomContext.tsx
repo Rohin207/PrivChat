@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
 import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey, promptForEncryptionKey, encryptMessageCompat, decryptMessageCompat } from '../utils/crypto';
@@ -766,15 +765,16 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           .select('*')
           .eq('room_id', roomId);
         
-        // Get or generate encryption key
+        // Get stored encryption key from session
         let encryptionKey = getRoomEncryptionKey(roomId);
-        
-        // If user is admin and doesn't have a saved encryption key, generate a new one
+
+        // If the user is admin (roomCreator) and doesn't have an encryption key yet, 
+        // always generate a new key and save it
         if (!encryptionKey && roomData.admin_id === user.id) {
           encryptionKey = generateRandomId(32);
           saveRoomEncryptionKey(roomId, encryptionKey);
           
-          // Show toast with encryption key for admin
+          // Alert admin about the encryption key
           toast({
             title: "Encryption Key Generated",
             description: "Please share this key with participants so they can decrypt messages.",
@@ -784,8 +784,9 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           setTimeout(() => {
             alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
           }, 1000);
-        } else if (!encryptionKey) {
-          // Always prompt for encryption key for non-admin users
+        } 
+        // If user is not admin but already a participant, try to get the key from a prompt
+        else if (!encryptionKey && existingParticipant) {
           encryptionKey = promptForEncryptionKey(roomId);
           
           if (!encryptionKey) {
