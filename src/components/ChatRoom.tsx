@@ -12,7 +12,8 @@ import {
   Key,
   UserCheck,
   UserX,
-  Bell 
+  Bell,
+  LoaderCircle
 } from "lucide-react";
 import { useRoom, Message as MessageType, JoinRequest } from "@/contexts/RoomContext";
 import { useUser } from "@/contexts/UserContext";
@@ -27,7 +28,14 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { encryptMessage, decryptMessage, promptForEncryptionKey, saveRoomEncryptionKey, getRoomEncryptionKey } from "@/utils/crypto";
+import { 
+  encryptMessageCompat, 
+  decryptMessageCompat, 
+  promptForEncryptionKey, 
+  saveRoomEncryptionKey, 
+  getRoomEncryptionKey,
+  needsDecryption
+} from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -40,27 +48,65 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
   const isCurrentUser = message.senderId === userId;
   const isSystem = message.senderId === 'system' || message.isSystemMessage;
   const { toast } = useToast();
+  const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
+  const [isDecrypting, setIsDecrypting] = useState(false);
   
   // Decrypt the message if it's encrypted and we have the key
-  let content = message.content;
+  useEffect(() => {
+    let isMounted = true;
+    
+    const decryptIfNeeded = async () => {
+      // Don't attempt decryption if we don't have what we need
+      if (!message.content || !message.isEncrypted || !encryptionKey) {
+        return;
+      }
+      
+      // If the message is not encrypted or doesn't look like it needs decryption, just use the content
+      if (!message.isEncrypted || !needsDecryption(message.content)) {
+        if (isMounted) setDecryptedContent(message.content);
+        return;
+      }
+      
+      setIsDecrypting(true);
+      try {
+        // Use the backward compatible decryption function
+        const decrypted = await decryptMessageCompat(message.content, encryptionKey);
+        if (isMounted) setDecryptedContent(decrypted);
+      } catch (error) {
+        console.error("Failed to decrypt message:", error);
+        if (isMounted) setDecryptedContent("⚠️ [Encrypted message - decryption failed]");
+      } finally {
+        if (isMounted) setIsDecrypting(false);
+      }
+    };
+    
+    decryptIfNeeded();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [message.content, message.isEncrypted, encryptionKey]);
   
-  // Only try to decrypt if the message is encrypted and we have an encryption key
-  if (message.isEncrypted && encryptionKey) {
-    try {
-      content = decryptMessage(message.content, encryptionKey);
-    } catch (error) {
-      console.error("Failed to decrypt message:", error);
-      content = "⚠️ [Encrypted message - unable to decrypt]";
+  // Prepare the content to display
+  let displayContent = message.content;
+  
+  if (message.isEncrypted) {
+    if (isDecrypting) {
+      displayContent = "Decrypting...";
+    } else if (decryptedContent) {
+      displayContent = decryptedContent;
+    } else if (!encryptionKey) {
+      displayContent = "🔒 [Encrypted message - encryption key required]";
+    } else {
+      displayContent = "⚠️ [Encrypted message - unable to decrypt]";
     }
-  } else if (message.isEncrypted && !encryptionKey) {
-    content = "🔒 [Encrypted message - encryption key required]";
   }
   
   if (isSystem) {
     return (
       <div className="flex justify-center my-2">
         <div className="bg-muted/50 rounded-full px-4 py-1 text-xs text-muted-foreground">
-          {content}
+          {displayContent}
         </div>
       </div>
     );
@@ -78,7 +124,16 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
         `}>
           {message.senderName}
         </div>
-        <div className="break-words">{content}</div>
+        <div className="break-words">
+          {isDecrypting ? (
+            <div className="flex items-center space-x-2">
+              <LoaderCircle className="h-3 w-3 animate-spin" />
+              <span>Decrypting message...</span>
+            </div>
+          ) : (
+            displayContent
+          )}
+        </div>
         <div className="text-xs mt-1 opacity-70">
           {new Date(message.timestamp).toLocaleTimeString()}
         </div>
@@ -116,6 +171,7 @@ const ChatRoom = () => {
   const [privateMessage, setPrivateMessage] = useState("");
   const [showCredentials, setShowCredentials] = useState(false);
   const [showJoinRequests, setShowJoinRequests] = useState(false);
+  const [isEncrypting, setIsEncrypting] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
@@ -188,18 +244,31 @@ const ChatRoom = () => {
     return () => clearInterval(interval);
   }, [currentRoom, fetchJoinRequests, user?.id]);
   
-  const handleSendMessage = (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     
     if (!message.trim() || !currentRoom) return;
     
-    // Encrypt the message before sending
-    const encryptedContent = currentRoom.encryptionKey 
-      ? encryptMessage(message.trim(), currentRoom.encryptionKey)
-      : message.trim();
+    setIsEncrypting(true);
     
-    sendMessage(encryptedContent);
-    setMessage("");
+    try {
+      // Encrypt the message before sending, using async encryption
+      const encryptedContent = currentRoom.encryptionKey 
+        ? await encryptMessageCompat(message.trim(), currentRoom.encryptionKey)
+        : message.trim();
+      
+      sendMessage(encryptedContent);
+      setMessage("");
+    } catch (error) {
+      console.error("Encryption failed:", error);
+      toast({
+        title: "Error",
+        description: "Failed to encrypt message. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsEncrypting(false);
+    }
   };
   
   const handleDeleteRoom = () => {
@@ -228,12 +297,13 @@ const ChatRoom = () => {
     setShowParticipants(false);
   };
   
-  const handleSendPrivateMessage = (e?: React.FormEvent) => {
+  const handleSendPrivateMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     
     if (!privateMessage.trim() || !selectedUser) return;
     
     // In a real app, this would be encrypted with a shared key
+    // For now, just send as-is since private messages don't have encryption
     sendPrivateMessage(selectedUser, privateMessage);
     setPrivateMessage("");
     setShowPrivateChat(false);
@@ -253,6 +323,7 @@ const ChatRoom = () => {
   // Add a new state for the encryption key prompt
   const [showEncryptionPrompt, setShowEncryptionPrompt] = useState(false);
   const [encryptionKeyInput, setEncryptionKeyInput] = useState("");
+  const [isTestingKey, setIsTestingKey] = useState(false);
   
   // Add a new effect to check for encryption key
   useEffect(() => {
@@ -277,7 +348,7 @@ const ChatRoom = () => {
   }, [currentRoom?.encryptionKey]);
   
   // Updated encryption key submission handler
-  const handleEncryptionKeySubmit = () => {
+  const handleEncryptionKeySubmit = async () => {
     if (!encryptionKeyInput.trim() || !currentRoom) {
       toast({
         title: "Error",
@@ -287,45 +358,81 @@ const ChatRoom = () => {
       return;
     }
     
-    console.log("Saving encryption key:", encryptionKeyInput);
+    setIsTestingKey(true);
     
-    // Save the encryption key to session storage
-    const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
-    
-    if (!keySaved) {
+    try {
+      console.log("Testing encryption key:", encryptionKeyInput);
+      
+      // Find an encrypted message to test with
+      const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
+      
+      // Test if the key can decrypt a message
+      if (testMessage) {
+        const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
+        
+        // Check if the decryption seems successful (not an error message)
+        const seemsValid = !decrypted.includes("[Decryption failed") && 
+                           !decrypted.includes("[Could not decrypt");
+        
+        if (!seemsValid) {
+          toast({
+            title: "Invalid Key",
+            description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
+            variant: "destructive"
+          });
+          setIsTestingKey(false);
+          return;
+        }
+      }
+      
+      // Save the encryption key to session storage
+      const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+      
+      if (!keySaved) {
+        toast({
+          title: "Error",
+          description: "Failed to save encryption key",
+          variant: "destructive"
+        });
+        setIsTestingKey(false);
+        return;
+      }
+      
+      // Update the current room state with the encryption key
+      if (setCurrentRoom) {
+        setCurrentRoom({
+          ...currentRoom,
+          encryptionKey: encryptionKeyInput
+        });
+        
+        // Force message decryption refresh
+        setMessageRefreshTrigger(prev => prev + 1);
+        
+        toast({
+          title: "Encryption Key Saved",
+          description: "Messages will now be decrypted with your key."
+        });
+        
+        // Close the dialog
+        setShowEncryptionPrompt(false);
+        setEncryptionKeyInput("");
+      } else {
+        console.error("setCurrentRoom is not defined");
+        toast({
+          title: "Error",
+          description: "Could not update room with encryption key",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error("Error testing encryption key:", error);
       toast({
         title: "Error",
-        description: "Failed to save encryption key",
+        description: "Failed to test encryption key. Please try again.",
         variant: "destructive"
       });
-      return;
-    }
-    
-    // Update the current room state with the encryption key
-    if (setCurrentRoom) {
-      setCurrentRoom({
-        ...currentRoom,
-        encryptionKey: encryptionKeyInput
-      });
-      
-      // Force message decryption refresh
-      setMessageRefreshTrigger(prev => prev + 1);
-      
-      toast({
-        title: "Encryption Key Saved",
-        description: "Messages will now be decrypted with your key."
-      });
-      
-      // Close the dialog
-      setShowEncryptionPrompt(false);
-      setEncryptionKeyInput("");
-    } else {
-      console.error("setCurrentRoom is not defined");
-      toast({
-        title: "Error",
-        description: "Could not update room with encryption key",
-        variant: "destructive"
-      });
+    } finally {
+      setIsTestingKey(false);
     }
   };
   
@@ -343,7 +450,7 @@ const ChatRoom = () => {
     ? privateChats.find(chat => chat.id === activePrivateChat)
     : null;
     
-  const joinRequestCount = currentRoom.joinRequests?.length || 0;
+  const joinRequestCount = currentRoom?.joinRequests?.length || 0;
 
   // Add a new method to copy encryption key to clipboard
   const copyEncryptionKey = async () => {
@@ -506,13 +613,18 @@ const ChatRoom = () => {
             placeholder="Type a message..." 
             className="flex-1"
             ref={messageInputRef}
+            disabled={isEncrypting}
           />
           <Button 
             type="submit" 
             size="icon" 
-            disabled={!message.trim()}
+            disabled={!message.trim() || isEncrypting}
           >
-            <Send className="h-5 w-5" />
+            {isEncrypting ? (
+              <LoaderCircle className="h-5 w-5 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
           </Button>
         </form>
       )}
@@ -695,8 +807,9 @@ const ChatRoom = () => {
               onChange={(e) => setEncryptionKeyInput(e.target.value)} 
               placeholder="Paste encryption key here" 
               autoFocus
+              disabled={isTestingKey}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !isTestingKey) {
                   e.preventDefault();
                   handleEncryptionKeySubmit();
                 }
@@ -712,14 +825,22 @@ const ChatRoom = () => {
                 setShowEncryptionPrompt(false);
                 setEncryptionKeyInput("");
               }}
+              disabled={isTestingKey}
             >
               Skip
             </Button>
             <Button 
               onClick={handleEncryptionKeySubmit}
-              disabled={!encryptionKeyInput.trim()}
+              disabled={!encryptionKeyInput.trim() || isTestingKey}
             >
-              Save Key
+              {isTestingKey ? (
+                <div className="flex items-center space-x-2">
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <span>Testing Key...</span>
+                </div>
+              ) : (
+                "Save Key"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
