@@ -1,1058 +1,451 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { User } from './UserContext';
-import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey, promptForEncryptionKey, encryptMessageCompat, decryptMessageCompat } from '../utils/crypto';
-import { supabase } from '../integrations/supabase/client';
-import { useToast } from '../hooks/use-toast';
+import React, { 
+  createContext, 
+  useState, 
+  useEffect, 
+  useContext,
+  useCallback 
+} from 'react';
+import { useNavigate } from 'react-router-dom';
+import { io, Socket } from 'socket.io-client';
+import { useUser } from './UserContext';
+import { useToast } from "@/hooks/use-toast";
+import { generateRandomId } from '@/utils/crypto';
 
-export interface Message {
+// Define message type
+export type Message = {
   id: string;
   senderId: string;
   senderName: string;
   content: string;
-  timestamp: Date;
-  isEncrypted: boolean;
+  timestamp: number;
+  roomId: string;
   isSystemMessage?: boolean;
-}
+  isEncrypted: boolean;
+};
 
-export interface JoinRequest {
+// Define join request type
+export type JoinRequest = {
   id: string;
+  roomId: string;
   userId: string;
   userName: string;
-  roomId: string;
-  timestamp: Date;
-}
+  timestamp: number;
+};
 
-export interface Room {
+// Define private chat type
+export type PrivateChat = {
   id: string;
-  password: string;
+  participants: [string, string];
+  messages: Message[];
+};
+
+// Define the structure of the room object
+export type Room = {
+  id: string;
   name: string;
-  createdAt: Date;
-  admin: string; // User ID of the admin
-  participants: User[];
+  password?: string;
+  admin: string;
+  participants: { id: string; name: string; isAdmin: boolean }[];
   messages: Message[];
+  createdAt: number;
+  isPrivate: boolean;
+  joinRequests: JoinRequest[];
   encryptionKey?: string;
-  joinRequests?: JoinRequest[];
-  pendingApproval?: boolean; // Flag to indicate if the user is pending approval
-}
+};
 
-interface PrivateChat {
-  id: string;
-  participants: [string, string]; // User IDs
-  messages: Message[];
-}
-
-interface RoomContextType {
+// Define the context type
+type RoomContextType = {
+  socket: Socket | null;
   currentRoom: Room | null;
-  setCurrentRoom: (room: Room | null) => void;
+  setCurrentRoom: React.Dispatch<React.SetStateAction<Room | null>> | null;
+  rooms: Room[];
+  setRooms: React.Dispatch<React.SetStateAction<Room[]>>;
+  createRoom: (roomName: string, password?: string, isPrivate?: boolean) => Promise<void>;
+  joinRoom: (roomId: string, password?: string) => Promise<boolean>;
+  leaveRoom: () => Promise<void>;
+  deleteRoom: (roomId: string) => Promise<void>;
+  sendMessage: (content: string, isSystemMessage?: boolean) => void;
+  sendPrivateMessage: (recipientId: string, content: string) => void;
   privateChats: PrivateChat[];
-  setPrivateChats: (chats: PrivateChat[]) => void;
   activePrivateChat: string | null;
-  setActivePrivateChat: (chatId: string | null) => void;
-  createRoom: (name: string, adminId: string, adminName: string) => Promise<Room>;
-  joinRoom: (roomId: string, password: string, user: User) => Promise<boolean>;
-  requestToJoinRoom: (roomId: string, password: string, user: User) => Promise<boolean>;
+  setActivePrivateChat: React.Dispatch<React.SetStateAction<string | null>>;
+  fetchJoinRequests: () => Promise<void>;
   approveJoinRequest: (request: JoinRequest) => Promise<boolean>;
   rejectJoinRequest: (request: JoinRequest) => Promise<void>;
-  leaveRoom: () => Promise<void>;
-  sendMessage: (content: string, isSystem?: boolean) => void;
-  sendPrivateMessage: (receiverId: string, content: string) => void;
-  availableRooms: { id: string; name: string }[];
-  fetchJoinRequests: () => Promise<void>;
-}
+  requestToJoin: (roomId: string) => Promise<boolean>;
+};
 
-const RoomContext = createContext<RoomContextType | undefined>(undefined);
+// Create the context with a default value of null
+const RoomContext = createContext<RoomContextType | null>(null);
 
-export const useRoom = () => {
+// RoomProvider component
+export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [privateChats, setPrivateChats] = useState<PrivateChat[]>([]);
+  const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
+  const { user } = useUser();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Initialize socket connection
+  useEffect(() => {
+    const newSocket = io(import.meta.env.VITE_SERVER_URL, {
+      autoConnect: false,
+      transports: ['websocket']
+    });
+
+    setSocket(newSocket);
+
+    // Clean up on unmount
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  // Connect socket when user is available
+  useEffect(() => {
+    if (user && socket && !socket.connected) {
+      socket.auth = { userId: user.id, userName: user.name };
+      socket.connect();
+    }
+  }, [user, socket]);
+
+  // Socket event listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('connect_error', (err) => {
+      console.error("Connection error:", err);
+      toast({
+        title: "Connection Error",
+        description: `Failed to connect to server: ${err.message}`,
+        variant: "destructive",
+      });
+    });
+
+    socket.on('rooms', (serverRooms: Room[]) => {
+      setRooms(serverRooms);
+    });
+
+    socket.on('room_updated', (updatedRoom: Room) => {
+      setRooms(prevRooms => {
+        const roomIndex = prevRooms.findIndex(room => room.id === updatedRoom.id);
+        if (roomIndex !== -1) {
+          const newRooms = [...prevRooms];
+          newRooms[roomIndex] = updatedRoom;
+          return newRooms;
+        } else {
+          return [...prevRooms, updatedRoom];
+        }
+      });
+
+      if (currentRoom && currentRoom.id === updatedRoom.id) {
+        setCurrentRoom(updatedRoom);
+      }
+    });
+
+    socket.on('new_message', (message: Message) => {
+      setCurrentRoom(prevRoom => {
+        if (!prevRoom || message.roomId !== prevRoom.id) return prevRoom;
+
+        return {
+          ...prevRoom,
+          messages: [...prevRoom.messages, message],
+        };
+      });
+    });
+
+    socket.on('private_message', (chat: PrivateChat) => {
+      setPrivateChats(prevChats => {
+        const chatIndex = prevChats.findIndex(c => c.id === chat.id);
+        if (chatIndex !== -1) {
+          const newChats = [...prevChats];
+          newChats[chatIndex] = chat;
+          return newChats;
+        } else {
+          return [...prevChats, chat];
+        }
+      });
+    });
+
+    socket.on('room_deleted', (roomId: string) => {
+      setRooms(prevRooms => prevRooms.filter(room => room.id !== roomId));
+      if (currentRoom?.id === roomId) {
+        setCurrentRoom(null);
+        navigate('/');
+      }
+    });
+
+    socket.on('join_request_list', (requests: JoinRequest[]) => {
+      setCurrentRoom(prevRoom => {
+        if (!prevRoom) return prevRoom;
+        return { ...prevRoom, joinRequests: requests };
+      });
+    });
+
+    // Clean up listeners on disconnect
+    return () => {
+      socket.off('connect_error');
+      socket.off('rooms');
+      socket.off('room_updated');
+      socket.off('new_message');
+      socket.off('private_message');
+      socket.off('room_deleted');
+      socket.off('join_request_list');
+    };
+  }, [socket, setCurrentRoom, navigate, currentRoom, toast]);
+
+  // Create a new room
+  const createRoom = async (roomName: string, password?: string, isPrivate: boolean = false): Promise<void> => {
+    if (!socket || !user) return;
+
+    const roomId = generateRandomId();
+    socket.emit('create_room', {
+      name: roomName,
+      password: password,
+      roomId: roomId,
+      isPrivate: isPrivate,
+    }, (response: { success: boolean, error?: string }) => {
+      if (response.success) {
+        toast({
+          title: "Room Created",
+          description: `Room "${roomName}" created successfully.`,
+        });
+        navigate(`/room/${roomId}`);
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to create room.",
+          variant: "destructive",
+        });
+      }
+    });
+  };
+
+  // Join an existing room
+  const joinRoom = async (roomId: string, password?: string): Promise<boolean> => {
+    if (!socket || !user) return false;
+
+    return new Promise((resolve) => {
+      socket.emit('join_room', { roomId: roomId, password: password }, (response: { success: boolean, error?: string, room?: Room }) => {
+        if (response.success) {
+          setCurrentRoom(response.room || null);
+          setPrivateChats([]);
+          toast({
+            title: "Joined Room",
+            description: `You have joined room "${response.room?.name || roomId}".`,
+          });
+          navigate(`/room/${roomId}`);
+          resolve(true);
+        } else {
+          toast({
+            title: "Error",
+            description: response.error || "Failed to join room.",
+            variant: "destructive",
+          });
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  // Leave the current room
+  const leaveRoom = async (): Promise<void> => {
+    if (!socket || !currentRoom || !user) return;
+
+    return new Promise((resolve) => {
+      socket.emit('leave_room', { roomId: currentRoom.id }, (response: { success: boolean, error?: string }) => {
+        if (response.success) {
+          setCurrentRoom(null);
+          setPrivateChats([]);
+          toast({
+            title: "Left Room",
+            description: `You have left room "${currentRoom.name}".`,
+          });
+          navigate('/');
+          resolve();
+        } else {
+          toast({
+            title: "Error",
+            description: response.error || "Failed to leave room.",
+            variant: "destructive",
+          });
+          resolve();
+        }
+      });
+    });
+  };
+
+  // Delete a room
+  const deleteRoom = async (roomId: string): Promise<void> => {
+    if (!socket) return;
+
+    socket.emit('delete_room', { roomId: roomId }, (response: { success: boolean, error?: string }) => {
+      if (response.success) {
+        setRooms(prevRooms => prevRooms.filter(room => room.id !== roomId));
+        if (currentRoom?.id === roomId) {
+          setCurrentRoom(null);
+          navigate('/');
+        }
+        toast({
+          title: "Room Deleted",
+          description: `Room "${roomId}" has been deleted.`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to delete room.",
+          variant: "destructive",
+        });
+      }
+    });
+  };
+
+  // Send a message to the current room
+  const sendMessage = (content: string, isSystemMessage: boolean = false): void => {
+    if (!socket || !currentRoom || !user) return;
+
+    const messageId = generateRandomId();
+    socket.emit('send_message', {
+      roomId: currentRoom.id,
+      content: content,
+      messageId: messageId,
+      isSystemMessage: isSystemMessage,
+      isEncrypted: !!currentRoom.encryptionKey,
+    });
+  };
+
+  // Send a private message to a user
+  const sendPrivateMessage = (recipientId: string, content: string): void => {
+    if (!socket || !user) return;
+
+    socket.emit('send_private_message', {
+      recipientId: recipientId,
+      content: content,
+    });
+  };
+
+  // Fetch join requests for the current room
+  const fetchJoinRequests = async (): Promise<void> => {
+    if (!socket || !currentRoom || !user?.isAdmin) return;
+
+    socket.emit('fetch_join_requests', { roomId: currentRoom.id });
+  };
+
+  // Approve a join request
+  const approveJoinRequest = async (request: JoinRequest): Promise<boolean> => {
+    if (!socket || !currentRoom || !user?.isAdmin) return false;
+
+    return new Promise((resolve) => {
+      socket.emit('approve_join_request', { roomId: currentRoom.id, requestId: request.id }, (response: { success: boolean, error?: string }) => {
+        if (response.success) {
+          setCurrentRoom(prevRoom => {
+            if (!prevRoom) return prevRoom;
+            const updatedRequests = prevRoom.joinRequests.filter(req => req.id !== request.id);
+            return { ...prevRoom, joinRequests: updatedRequests };
+          });
+          toast({
+            title: "Request Approved",
+            description: `User "${request.userName}" has been approved to join the room.`,
+          });
+          resolve(true);
+        } else {
+          toast({
+            title: "Error",
+            description: response.error || "Failed to approve join request.",
+            variant: "destructive",
+          });
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  // Reject a join request
+  const rejectJoinRequest = async (request: JoinRequest): Promise<void> => {
+    if (!socket || !currentRoom || !user?.isAdmin) return;
+
+    socket.emit('reject_join_request', { roomId: currentRoom.id, requestId: request.id }, (response: { success: boolean, error?: string }) => {
+      if (response.success) {
+        setCurrentRoom(prevRoom => {
+          if (!prevRoom) return prevRoom;
+          const updatedRequests = prevRoom.joinRequests.filter(req => req.id !== request.id);
+          return { ...prevRoom, joinRequests: updatedRequests };
+        });
+        toast({
+          title: "Request Rejected",
+          description: `User "${request.userName}" join request has been rejected.`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to reject join request.",
+          variant: "destructive",
+        });
+      }
+    });
+  };
+
+  // Request to join a private room
+  const requestToJoin = async (roomId: string): Promise<boolean> => {
+    if (!socket || !user) return false;
+
+    return new Promise((resolve) => {
+      socket.emit('request_to_join', { roomId: roomId }, (response: { success: boolean, error?: string }) => {
+        if (response.success) {
+          toast({
+            title: "Request Sent",
+            description: "Your request to join the room has been sent to the admin.",
+          });
+          resolve(true);
+        } else {
+          toast({
+            title: "Error",
+            description: response.error || "Failed to send join request.",
+            variant: "destructive",
+          });
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  // Provide the context value
+  const value: RoomContextType = {
+    socket,
+    currentRoom,
+    setCurrentRoom,
+    rooms,
+    setRooms,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    deleteRoom,
+    sendMessage,
+    sendPrivateMessage,
+    privateChats,
+    activePrivateChat,
+    setActivePrivateChat,
+    fetchJoinRequests,
+    approveJoinRequest,
+    rejectJoinRequest,
+    requestToJoin,
+  };
+
+  return (
+    <RoomContext.Provider value={value}>
+      {children}
+    </RoomContext.Provider>
+  );
+};
+
+// Custom hook to use the RoomContext
+export const useRoom = (): RoomContextType => {
   const context = useContext(RoomContext);
   if (!context) {
     throw new Error('useRoom must be used within a RoomProvider');
   }
   return context;
 };
-
-interface RoomProviderProps {
-  children: ReactNode;
-}
-
-export const RoomProvider = ({ children }: RoomProviderProps) => {
-  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
-  const [privateChats, setPrivateChats] = useState<PrivateChat[]>([]);
-  const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
-  const [availableRooms, setAvailableRooms] = useState<{ id: string; name: string }[]>([]);
-  const { toast } = useToast();
-
-  // Subscribe to room updates
-  useEffect(() => {
-    const roomSubscription = supabase
-      .channel('public:rooms')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'rooms'
-      }, (payload) => {
-        console.log('Room change detected:', payload);
-        fetchAvailableRooms();
-      })
-      .subscribe();
-
-    // Initial load of available rooms
-    fetchAvailableRooms();
-
-    return () => {
-      supabase.removeChannel(roomSubscription);
-    };
-  }, []);
-
-  // Subscribe to messages when a room is joined
-  useEffect(() => {
-    if (!currentRoom) return;
-
-    const messageSubscription = supabase
-      .channel(`room-messages-${currentRoom.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'messages',
-        filter: `room_id=eq.${currentRoom.id}`
-      }, (payload) => {
-        console.log('New message received:', payload);
-        
-        if (payload.new) {
-          const newMessage: any = payload.new;
-          
-          // Skip if this is our own message (we've already added it to the UI)
-          const userId = sessionStorage.getItem('userId');
-          if (newMessage.sender_id === userId) return;
-          
-          // Convert from database format to our app format
-          const message: Message = {
-            id: newMessage.id,
-            senderId: newMessage.sender_id,
-            senderName: newMessage.sender_name,
-            content: newMessage.content,
-            timestamp: new Date(newMessage.created_at),
-            isEncrypted: newMessage.is_encrypted,
-            isSystemMessage: newMessage.is_system_message
-          };
-          
-          // Add the message to the current room
-          setCurrentRoom(prevRoom => {
-            if (!prevRoom) return null;
-            return {
-              ...prevRoom,
-              messages: [...prevRoom.messages, message]
-            };
-          });
-        }
-      })
-      .subscribe();
-
-    // Subscribe to participants
-    const participantSubscription = supabase
-      .channel(`room-participants-${currentRoom.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'participants',
-        filter: `room_id=eq.${currentRoom.id}`
-      }, (payload) => {
-        console.log('Participant change detected:', payload);
-        
-        // Refresh participant list
-        if (currentRoom) {
-          fetchRoomParticipants(currentRoom.id);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(messageSubscription);
-      supabase.removeChannel(participantSubscription);
-    };
-  }, [currentRoom?.id]);
-
-  // Subscribe to join requests if user is admin
-  useEffect(() => {
-    if (!currentRoom) return;
-    if (currentRoom.admin !== sessionStorage.getItem('userId')) return;
-    
-    // Only admin should subscribe to join requests
-    const joinRequestSubscription = supabase
-      .channel(`join-requests-${currentRoom.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'join_requests',
-        filter: `room_id=eq.${currentRoom.id}`
-      }, (payload) => {
-        console.log('Join request change detected:', payload);
-        fetchJoinRequests();
-      })
-      .subscribe();
-    
-    // Initial fetch of join requests
-    fetchJoinRequests();
-    
-    return () => {
-      supabase.removeChannel(joinRequestSubscription);
-    };
-  }, [currentRoom?.id, currentRoom?.admin]);
-
-  // Fetch join requests for current room
-  const fetchJoinRequests = async () => {
-    if (!currentRoom) return;
-    
-    // Only admin should fetch join requests
-    if (currentRoom.admin !== sessionStorage.getItem('userId')) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('join_requests')
-        .select('*')
-        .eq('room_id', currentRoom.id);
-
-      if (error) {
-        console.error('Error fetching join requests:', error);
-        return;
-      }
-
-      if (data) {
-        const joinRequests: JoinRequest[] = data.map(req => ({
-          id: req.id,
-          userId: req.user_id,
-          userName: req.user_name,
-          roomId: req.room_id,
-          timestamp: new Date(req.created_at)
-        }));
-
-        setCurrentRoom(prev => {
-          if (!prev) return null;
-          return { ...prev, joinRequests };
-        });
-      }
-    } catch (error) {
-      console.error("Error in fetchJoinRequests:", error);
-    }
-  };
-
-  // Fetch available rooms
-  const fetchAvailableRooms = async () => {
-    try {
-      // Fetch all rooms first
-      const { data: allRooms, error } = await supabase
-        .from('rooms')
-        .select('id, name')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching available rooms:', error);
-        return;
-      }
-
-      // Initialize an array for active rooms
-      const activeRooms = [];
-      
-      // Check each room for participants
-      for (const room of allRooms || []) {
-        const { data: participantsData, error: participantsError } = await supabase
-          .from('participants')
-          .select('count')
-          .eq('room_id', room.id);
-          
-        // Check if this room has participants
-        const hasParticipants = participantsData && participantsData.length > 0;
-        
-        if (hasParticipants) {
-          // Room has participants, keep it
-          activeRooms.push(room);
-        } else {
-          console.log("Found empty room, deleting:", room.id);
-          
-          // Clean up the empty room
-          await cleanupRoom(room.id);
-        }
-      }
-      
-      setAvailableRooms(activeRooms);
-    } catch (error) {
-      console.error("Error in fetchAvailableRooms:", error);
-    }
-  };
-  
-  // Helper function to clean up a room and its related data
-  const cleanupRoom = async (roomId: string) => {
-    try {
-      console.log("Cleaning up room:", roomId);
-      
-      // Delete all messages for this room
-      const { error: messagesError } = await supabase
-        .from('messages')
-        .delete()
-        .eq('room_id', roomId);
-      
-      if (messagesError) {
-        console.error("Error deleting messages:", messagesError);
-      }
-      
-      // Delete all join requests for this room
-      const { error: joinRequestsError } = await supabase
-        .from('join_requests')
-        .delete()
-        .eq('room_id', roomId);
-      
-      if (joinRequestsError) {
-        console.error("Error deleting join requests:", joinRequestsError);
-      }
-      
-      // Delete all participants for this room
-      const { error: participantsError } = await supabase
-        .from('participants')
-        .delete()
-        .eq('room_id', roomId);
-      
-      if (participantsError) {
-        console.error("Error deleting participants:", participantsError);
-      }
-      
-      // Finally delete the room itself
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .delete()
-        .eq('id', roomId);
-      
-      if (roomError) {
-        console.error("Error deleting room:", roomError);
-      }
-      
-      console.log("Room cleanup complete:", roomId);
-    } catch (error) {
-      console.error("Error in cleanupRoom:", error);
-    }
-  };
-
-  // Fetch room participants
-  const fetchRoomParticipants = async (roomId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('room_id', roomId);
-
-      if (error) {
-        console.error('Error fetching room participants:', error);
-        return;
-      }
-
-      if (!currentRoom) return;
-
-      // Update the participants list
-      const participants: User[] = data.map(p => ({
-        id: p.user_id,
-        name: p.user_name,
-        isAdmin: p.is_admin,
-        joinedAt: new Date(p.joined_at)
-      }));
-
-      setCurrentRoom(prev => {
-        if (!prev) return null;
-        return { ...prev, participants };
-      });
-    } catch (error) {
-      console.error("Error in fetchRoomParticipants:", error);
-    }
-  };
-
-  // Check if user has a pending join request
-  const checkPendingJoinRequest = async (roomId: string, userId: string): Promise<boolean> => {
-    try {
-      const { data, error } = await supabase
-        .from('join_requests')
-        .select('*')
-        .eq('room_id', roomId)
-        .eq('user_id', userId)
-        .single();
-      
-      if (error) {
-        console.log("No pending join request found");
-        return false;
-      }
-      
-      return data !== null;
-    } catch (error) {
-      console.error("Error checking pending join request:", error);
-      return false;
-    }
-  };
-
-  // Create a new room
-  const createRoom = async (name: string, adminId: string, adminName: string): Promise<Room> => {
-    const roomId = generateRandomId(16);
-    const roomPassword = generateRandomId(8); 
-    const encryptionKey = generateRandomId(32);
-    
-    try {
-      // Insert the room into Supabase
-      const { data: roomData, error: roomError } = await supabase
-        .from('rooms')
-        .insert({
-          id: roomId,
-          name: name || `Room-${roomId.slice(0, 6)}`,
-          password: roomPassword,
-          admin_id: adminId,
-        })
-        .select()
-        .single();
-      
-      if (roomError) {
-        console.error('Error creating room:', roomError);
-        toast({
-          title: 'Error',
-          description: 'Failed to create room. Please try again.',
-          variant: 'destructive'
-        });
-        throw roomError;
-      }
-      
-      // Add the admin as a participant
-      const { error: participantError } = await supabase
-        .from('participants')
-        .insert({
-          room_id: roomId,
-          user_id: adminId,
-          user_name: adminName,
-          is_admin: true
-        });
-      
-      if (participantError) {
-        console.error('Error adding participant:', participantError);
-        toast({
-          title: 'Error',
-          description: 'Failed to join as admin. Please try again.',
-          variant: 'destructive'
-        });
-        throw participantError;
-      }
-      
-      console.log("Room created:", roomId, "with password:", roomPassword);
-      
-      // Save encryption key to session storage
-      saveRoomEncryptionKey(roomId, encryptionKey);
-      
-      // Create room object for the UI
-      const newRoom: Room = {
-        id: roomId,
-        password: roomPassword,
-        name: name || `Room-${roomId.slice(0, 6)}`,
-        createdAt: new Date(roomData.created_at),
-        admin: adminId,
-        participants: [{
-          id: adminId,
-          name: adminName,
-          isAdmin: true,
-          joinedAt: new Date()
-        }],
-        messages: [],
-        encryptionKey,
-        joinRequests: []
-      };
-      
-      setCurrentRoom(newRoom);
-      await fetchAvailableRooms(); // Refresh the list of available rooms
-      
-      return newRoom;
-    } catch (error) {
-      console.error("Error in createRoom:", error);
-      throw error;
-    }
-  };
-
-  // Request to join an existing room
-  const requestToJoinRoom = async (roomId: string, password: string, user: User): Promise<boolean> => {
-    try {
-      // Check if room exists and password is correct
-      const { data: roomData, error: roomError } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('id', roomId)
-        .eq('password', password)
-        .single();
-      
-      if (roomError || !roomData) {
-        console.log("Room not found or incorrect password");
-        toast({
-          title: "Error",
-          description: "Invalid room ID or password",
-          variant: "destructive"
-        });
-        return false;
-      }
-      
-      // Check if user is already a participant
-      const { data: existingParticipant } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('room_id', roomId)
-        .eq('user_id', user.id)
-        .maybeSingle();
-        
-      if (existingParticipant) {
-        toast({
-          title: 'Already a participant',
-          description: 'You are already in this room.',
-        });
-        
-        // If user is already a participant, fetch the room data
-        await joinRoom(roomId, password, user);
-        return true;
-      }
-      
-      // Check for existing join request
-      const { data: existingRequest } = await supabase
-        .from('join_requests')
-        .select('*')
-        .eq('room_id', roomId)
-        .eq('user_id', user.id)
-        .maybeSingle();
-        
-      if (existingRequest) {
-        toast({
-          title: 'Request pending',
-          description: 'Your join request is already pending approval.',
-        });
-        
-        // Set current room with pending approval flag
-        const newRoom: Room = {
-          id: roomId,
-          password: password,
-          name: roomData.name,
-          createdAt: new Date(roomData.created_at),
-          admin: roomData.admin_id,
-          participants: [],
-          messages: [],
-          pendingApproval: true
-        };
-        
-        setCurrentRoom(newRoom);
-        return true;
-      }
-      
-      // Add join request
-      const { error: requestError } = await supabase
-        .from('join_requests')
-        .insert({
-          room_id: roomId,
-          user_id: user.id,
-          user_name: user.name
-        });
-      
-      if (requestError) {
-        console.error('Error adding join request:', requestError);
-        toast({
-          title: 'Error',
-          description: 'Failed to send join request. Please try again.',
-          variant: 'destructive'
-        });
-        return false;
-      }
-      
-      toast({
-        title: 'Join request sent',
-        description: 'Waiting for admin approval to join the room.',
-      });
-      
-      // Set current room with pending approval flag
-      const newRoom: Room = {
-        id: roomId,
-        password: password,
-        name: roomData.name,
-        createdAt: new Date(roomData.created_at),
-        admin: roomData.admin_id,
-        participants: [],
-        messages: [],
-        pendingApproval: true
-      };
-      
-      setCurrentRoom(newRoom);
-      return true;
-    } catch (error) {
-      console.error("Error in requestToJoinRoom:", error);
-      return false;
-    }
-  };
-
-  // Approve a join request
-  const approveJoinRequest = async (request: JoinRequest): Promise<boolean> => {
-    try {
-      if (!currentRoom || currentRoom.admin !== sessionStorage.getItem('userId')) {
-        toast({
-          title: 'Error',
-          description: 'Only the admin can approve join requests',
-          variant: 'destructive'
-        });
-        return false;
-      }
-      
-      // Add user to room participants
-      const { error: participantError } = await supabase
-        .from('participants')
-        .insert({
-          room_id: request.roomId,
-          user_id: request.userId,
-          user_name: request.userName
-        });
-      
-      if (participantError) {
-        console.error('Error adding participant:', participantError);
-        toast({
-          title: 'Error',
-          description: 'Failed to approve request. Please try again.',
-          variant: 'destructive'
-        });
-        return false;
-      }
-      
-      // Add system message
-      await supabase
-        .from('messages')
-        .insert({
-          room_id: request.roomId,
-          sender_id: 'system',
-          sender_name: 'System',
-          content: `${request.userName} joined the room`,
-          is_encrypted: false,
-          is_system_message: true
-        });
-      
-      // Delete the join request
-      await supabase
-        .from('join_requests')
-        .delete()
-        .eq('id', request.id);
-      
-      // Refresh join requests
-      await fetchJoinRequests();
-      
-      toast({
-        title: 'Request Approved',
-        description: `${request.userName} has been added to the room`,
-      });
-      
-      return true;
-    } catch (error) {
-      console.error("Error in approveJoinRequest:", error);
-      return false;
-    }
-  };
-
-  // Reject a join request
-  const rejectJoinRequest = async (request: JoinRequest) => {
-    try {
-      if (!currentRoom || currentRoom.admin !== sessionStorage.getItem('userId')) return;
-      
-      // Delete the join request
-      await supabase
-        .from('join_requests')
-        .delete()
-        .eq('id', request.id);
-      
-      // Refresh join requests
-      await fetchJoinRequests();
-      
-      toast({
-        title: 'Request Rejected',
-        description: `Join request from ${request.userName} has been rejected`,
-      });
-    } catch (error) {
-      console.error("Error in rejectJoinRequest:", error);
-    }
-  };
-
-  // Join an existing room 
-  const joinRoom = async (roomId: string, password: string, user: User): Promise<boolean> => {
-    try {
-      console.log("Attempting to join room:", roomId);
-      
-      // Check if room exists and password is correct
-      const { data: roomData, error: roomError } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('id', roomId)
-        .eq('password', password)
-        .single();
-      
-      if (roomError || !roomData) {
-        console.log("Room not found or incorrect password:", roomError);
-        toast({
-          title: "Error",
-          description: "Invalid room ID or password",
-          variant: "destructive"
-        });
-        return false;
-      }
-      
-      console.log("Room found:", roomData);
-      
-      // Check if admin or if approval is required
-      if (roomData.admin_id !== user.id) {
-        // Check if user is already a participant
-        const { data: existingParticipant, error: participantError } = await supabase
-          .from('participants')
-          .select('*')
-          .eq('room_id', roomId)
-          .eq('user_id', user.id)
-          .maybeSingle();
-        
-        if (participantError) {
-          console.log("Error checking participant:", participantError);
-        }
-        
-        // If not admin and not already a participant, request to join
-        if (!existingParticipant) {
-          // Check if there's a pending join request
-          const hasPendingRequest = await checkPendingJoinRequest(roomId, user.id);
-          
-          if (hasPendingRequest) {
-            toast({
-              title: 'Request pending',
-              description: 'Your join request is awaiting admin approval.',
-            });
-            
-            // Set current room with pending approval flag
-            const newRoom: Room = {
-              id: roomId,
-              password: password,
-              name: roomData.name,
-              createdAt: new Date(roomData.created_at),
-              admin: roomData.admin_id,
-              participants: [],
-              messages: [],
-              pendingApproval: true
-            };
-            
-            setCurrentRoom(newRoom);
-            return true;
-          }
-          
-          // Request to join instead
-          return await requestToJoinRoom(roomId, password, user);
-        }
-      }
-      
-      // User is admin or already a participant
-      try {
-        // Check if already a participant
-        const { data: existingParticipant, error: participantError } = await supabase
-          .from('participants')
-          .select('*')
-          .eq('room_id', roomId)
-          .eq('user_id', user.id)
-          .maybeSingle();
-        
-        if (participantError && participantError.code !== 'PGRST116') {
-          console.error("Error checking participant:", participantError);
-        }
-        
-        // Fetch all messages for this room
-        const { data: messagesData } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('room_id', roomId)
-          .order('created_at', { ascending: true });
-        
-        // Fetch all participants
-        const { data: participantsData } = await supabase
-          .from('participants')
-          .select('*')
-          .eq('room_id', roomId);
-        
-        // Get stored encryption key from session
-        let encryptionKey = getRoomEncryptionKey(roomId);
-
-        // If the user is admin and doesn't have an encryption key, generate one
-        if (!encryptionKey && roomData.admin_id === user.id) {
-          encryptionKey = generateRandomId(32);
-          saveRoomEncryptionKey(roomId, encryptionKey);
-          
-          // Alert admin about the encryption key
-          toast({
-            title: "Encryption Key Generated",
-            description: "Share this key with participants so they can decrypt messages. Click the key icon to view it.",
-          });
-          
-          // Force admin to see the key
-          setTimeout(() => {
-            alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
-          }, 1000);
-        } 
-        // If user is a participant but doesn't have the key, prompt for it
-        else if (!encryptionKey && existingParticipant) {
-          encryptionKey = promptForEncryptionKey(roomId);
-          
-          if (!encryptionKey) {
-            toast({
-              title: "Warning",
-              description: "No encryption key provided. You won't be able to read encrypted messages. Click the key icon to add it later.",
-              variant: "destructive"
-            });
-          } else {
-            toast({
-              title: "Encryption Key Saved",
-              description: "Messages will now be decrypted with your key.",
-            });
-          }
-        }
-      
-        // Create room object for the UI
-        const newRoom: Room = {
-          id: roomId,
-          password: password,
-          name: roomData.name,
-          createdAt: new Date(roomData.created_at),
-          admin: roomData.admin_id,
-          participants: participantsData?.map(p => ({
-            id: p.user_id,
-            name: p.user_name,
-            isAdmin: p.is_admin,
-            joinedAt: new Date(p.joined_at)
-          })) || [],
-          messages: messagesData?.map(m => ({
-            id: m.id,
-            senderId: m.sender_id,
-            senderName: m.sender_name,
-            content: m.content,
-            timestamp: new Date(m.created_at),
-            isEncrypted: m.is_encrypted,
-            isSystemMessage: m.is_system_message
-          })) || [],
-          encryptionKey: encryptionKey || undefined
-        };
-        
-        // If admin, fetch join requests
-        if (newRoom.admin === user.id) {
-          await fetchJoinRequests();
-        }
-        
-        // Set current room
-        setCurrentRoom(newRoom);
-        return true;
-      } catch (error) {
-        console.error("Error checking participant status:", error);
-      }
-      
-      // Add user as a participant if they are admin or approved
-      const { error: addParticipantError } = await supabase
-        .from('participants')
-        .insert({
-          room_id: roomId,
-          user_id: user.id,
-          user_name: user.name,
-          is_admin: roomData.admin_id === user.id
-        });
-      
-      if (addParticipantError) {
-        console.error('Error adding participant:', addParticipantError);
-        toast({
-          title: 'Error',
-          description: 'Failed to join room. Please try again.',
-          variant: 'destructive'
-        });
-        return false;
-      }
-      
-      // Generate or get encryption key
-      let encryptionKey = getRoomEncryptionKey(roomId);
-      if (!encryptionKey && roomData.admin_id === user.id) {
-        encryptionKey = generateRandomId(32);
-        saveRoomEncryptionKey(roomId, encryptionKey);
-        
-        // Alert admin about the encryption key
-        setTimeout(() => {
-          alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
-        }, 1000);
-      } else if (!encryptionKey) {
-        // Always prompt for encryption key for non-admin users
-        encryptionKey = promptForEncryptionKey(roomId);
-      }
-      
-      // Add system message
-      const joinMessage: Message = {
-        id: generateRandomId(),
-        senderId: 'system',
-        senderName: 'System',
-        content: `${user.name} joined the room`,
-        timestamp: new Date(),
-        isEncrypted: false,
-        isSystemMessage: true
-      };
-      
-      // Insert the system message
-      await supabase
-        .from('messages')
-        .insert({
-          room_id: roomId,
-          sender_id: 'system',
-          sender_name: 'System',
-          content: joinMessage.content,
-          is_encrypted: false,
-          is_system_message: true
-        });
-      
-      console.log("User joined successfully");
-      
-      // Fetch all messages for this room
-      const { data: messagesData } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('room_id', roomId)
-        .order('created_at', { ascending: true });
-      
-      // Fetch all participants
-      const { data: participantsData } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('room_id', roomId);
-      
-      // Create room object for the UI
-      const newRoom: Room = {
-        id: roomId,
-        password: password,
-        name: roomData.name,
-        createdAt: new Date(roomData.created_at),
-        admin: roomData.admin_id,
-        participants: participantsData?.map(p => ({
-          id: p.user_id,
-          name: p.user_name,
-          isAdmin: p.is_admin,
-          joinedAt: new Date(p.joined_at)
-        })) || [],
-        messages: messagesData?.map(m => ({
-          id: m.id,
-          senderId: m.sender_id,
-          senderName: m.sender_name,
-          content: m.content,
-          timestamp: new Date(m.created_at),
-          isEncrypted: m.is_encrypted,
-          isSystemMessage: m.is_system_message
-        })) || [],
-        encryptionKey: encryptionKey
-      };
-      
-      // If admin, fetch join requests
-      if (newRoom.admin === user.id) {
-        await fetchJoinRequests();
-      }
-      
-      // Set current room
-      setCurrentRoom(newRoom);
-      return true;
-    } catch (error) {
-      console.error("Error in joinRoom:", error);
-      toast({
-        title: "Error",
-        description: "Failed to join room due to a technical error. Please try again.",
-        variant: "destructive"
-      });
-      return false;
-    }
-  };
-
-  // Leave the current room
-  const leaveRoom = async () => {
-    if (!currentRoom) return;
-    
-    try {
-      const userId = sessionStorage.getItem('userId');
-      const userName = sessionStorage.getItem('userName');
-      
-      if (!userId || !userName) return;
-      
-      // Remove user from participants
-      await supabase
-        .from('participants')
-        .delete()
-        .eq('room_id', currentRoom.id)
-        .eq('user_id', userId);
-      
-      // Add system message about leaving
-      await supabase
-        .from('messages')
-        .insert({
-          room_id: currentRoom.id,
-          sender_id: 'system',
-          sender_name: 'System',
-          content: `${userName} left the room`,
-          is_encrypted: false,
-          is_system_message: true
-        });
-      
-      // Check participant count after user leaves
-      const { data: participants, error } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('room_id', currentRoom.id);
-      
-      if (error) {
-        console.error("Error checking participants:", error);
-      }
-      
-      // If no participants left, delete the room immediately
-      if (!participants || participants.length === 0) {
-        console.log("No participants left, cleaning up room:", currentRoom.id);
-        await cleanupRoom(currentRoom.id);
-        
-        // Remove from available rooms list
-        setAvailableRooms(prev => prev.filter(room => room.id !== currentRoom.id));
-      } 
-      // If user is admin, transfer admin role
-      else if (currentRoom.admin === userId) {
-        // Transfer admin role to the earliest joined participant
-        const nextAdmin = participants[0];
-        
-        await supabase
-          .from('participants')
-          .update({ is_admin: true })
-          .eq('id', nextAdmin.id);
-        
-        await supabase
-          .from('rooms')
-          .update({ admin_id: nextAdmin.user_id })
-          .eq('id', currentRoom.id);
-        
-        // Add system message about admin transfer
-        await supabase
-          .from('messages')
-          .insert({
-            room_id: currentRoom.id,
-            sender_id: 'system',
-            sender_name: 'System',
-            content: `${userName} left the room. ${nextAdmin.user_name} is now the admin.`,
-            is_encrypted: false,
-            is_system_message: true
-          });
-      }
-      
-      // Update the available rooms list to reflect the changes
-      await fetchAvailableRooms();
-      setCurrentRoom(null);
-    } catch (error) {
-      console.error("Error in leaveRoom:", error);
-    }
-  };
-
-  // Send a message to the current room
-  const sendMessage = async (content: string, isSystem = false) => {
-    if (!currentRoom) return;
-    
-    try {
-      const userId = sessionStorage.getItem('userId');
-      const userName = sessionStorage.getItem('userName');
-      
-      if (!userId || !userName) return;
-      
-      // Create message object
-      const newMessage: Message = {
-        id: generateRandomId(),
-        senderId: isSystem ? 'system' : userId,
-        senderName: isSystem ? 'System' : userName,
-        content,
-        timestamp
