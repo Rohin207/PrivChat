@@ -667,7 +667,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     }
   };
 
-  // Join an existing room directly (for backward compatibility)
+  // Join an existing room 
   const joinRoom = async (roomId: string, password: string, user: User): Promise<boolean> => {
     try {
       console.log("Attempting to join room:", roomId);
@@ -768,8 +768,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         // Get stored encryption key from session
         let encryptionKey = getRoomEncryptionKey(roomId);
 
-        // If the user is admin (roomCreator) and doesn't have an encryption key yet, 
-        // always generate a new key and save it
+        // If the user is admin and doesn't have an encryption key, generate one
         if (!encryptionKey && roomData.admin_id === user.id) {
           encryptionKey = generateRandomId(32);
           saveRoomEncryptionKey(roomId, encryptionKey);
@@ -777,7 +776,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           // Alert admin about the encryption key
           toast({
             title: "Encryption Key Generated",
-            description: "Please share this key with participants so they can decrypt messages.",
+            description: "Share this key with participants so they can decrypt messages. Click the key icon to view it.",
           });
           
           // Force admin to see the key
@@ -785,20 +784,20 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
             alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
           }, 1000);
         } 
-        // If user is not admin but already a participant, try to get the key from a prompt
+        // If user is a participant but doesn't have the key, prompt for it
         else if (!encryptionKey && existingParticipant) {
           encryptionKey = promptForEncryptionKey(roomId);
           
           if (!encryptionKey) {
             toast({
               title: "Warning",
-              description: "No encryption key provided. You won't be able to read encrypted messages.",
+              description: "No encryption key provided. You won't be able to read encrypted messages. Click the key icon to add it later.",
               variant: "destructive"
             });
           } else {
             toast({
               title: "Encryption Key Saved",
-              description: "You can now decrypt messages in this room.",
+              description: "Messages will now be decrypted with your key.",
             });
           }
         }
@@ -840,7 +839,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         console.error("Error checking participant status:", error);
       }
       
-      // If user is admin, they can join directly
+      // Add user as a participant if they are admin or approved
       const { error: addParticipantError } = await supabase
         .from('participants')
         .insert({
@@ -860,7 +859,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         return false;
       }
       
-      // Generate new encryption key for admin
+      // Generate or get encryption key
       let encryptionKey = getRoomEncryptionKey(roomId);
       if (!encryptionKey && roomData.admin_id === user.id) {
         encryptionKey = generateRandomId(32);
@@ -1056,103 +1055,4 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         senderId: isSystem ? 'system' : userId,
         senderName: isSystem ? 'System' : userName,
         content,
-        timestamp: new Date(),
-        isEncrypted: !isSystem && !!currentRoom.encryptionKey,
-        isSystemMessage: isSystem
-      };
-      
-      // If encryption is enabled and it's not a system message, encrypt the content
-      let finalContent = content;
-      if (currentRoom.encryptionKey && !isSystem) {
-        // Fix: Await the async encryption function
-        finalContent = await encryptMessageCompat(content, currentRoom.encryptionKey);
-      }
-      
-      // Add message to Supabase
-      await supabase
-        .from('messages')
-        .insert({
-          room_id: currentRoom.id,
-          sender_id: newMessage.senderId,
-          sender_name: newMessage.senderName,
-          content: finalContent,
-          is_encrypted: newMessage.isEncrypted,
-          is_system_message: isSystem
-        });
-      
-      // Update local state immediately for better UX
-      setCurrentRoom(prevRoom => {
-        if (!prevRoom) return null;
-        return {
-          ...prevRoom,
-          messages: [...prevRoom.messages, newMessage]
-        };
-      });
-    } catch (error) {
-      console.error("Error in sendMessage:", error);
-    }
-  };
-
-  // Send a private message
-  const sendPrivateMessage = async (receiverId: string, content: string) => {
-    const userId = sessionStorage.getItem('userId');
-    const userName = sessionStorage.getItem('userName');
-    
-    if (!userId || !userName) return;
-    
-    // Find if there's an existing private chat
-    const chatId = [userId, receiverId].sort().join('-');
-    let privateChat = privateChats.find(chat => chat.id === chatId);
-    
-    // If not, create a new private chat
-    if (!privateChat) {
-      privateChat = {
-        id: chatId,
-        participants: [userId, receiverId] as [string, string],
-        messages: []
-      };
-      setPrivateChats([...privateChats, privateChat]);
-    }
-    
-    // Add the message
-    const newMessage: Message = {
-      id: generateRandomId(),
-      senderId: userId,
-      senderName: userName,
-      content,
-      timestamp: new Date(),
-      isEncrypted: true
-    };
-    
-    privateChat.messages.push(newMessage);
-    setPrivateChats(privateChats.map(chat => 
-      chat.id === chatId ? {...chat, messages: [...chat.messages, newMessage]} : chat
-    ));
-    setActivePrivateChat(chatId);
-  };
-
-  const value = {
-    currentRoom,
-    setCurrentRoom,
-    privateChats,
-    setPrivateChats,
-    activePrivateChat,
-    setActivePrivateChat,
-    createRoom,
-    joinRoom,
-    requestToJoinRoom,
-    approveJoinRequest,
-    rejectJoinRequest,
-    leaveRoom,
-    sendMessage,
-    sendPrivateMessage,
-    availableRooms,
-    fetchJoinRequests,
-  };
-
-  return (
-    <RoomContext.Provider value={value}>
-      {children}
-    </RoomContext.Provider>
-  );
-};
+        timestamp

@@ -40,7 +40,7 @@ export const saveRoomEncryptionKey = (roomId: string, key: string): boolean => {
     
     const keyName = `room_${roomId}_key`;
     sessionStorage.setItem(keyName, key);
-    console.log(`Encryption key saved successfully for room ${roomId} with key name ${keyName}`);
+    console.log(`Encryption key saved successfully for room ${roomId}`);
     return true;
   } catch (error) {
     console.error("Error saving encryption key:", error);
@@ -60,7 +60,6 @@ export const getRoomEncryptionKey = (roomId: string): string | null => {
     
     const keyName = `room_${roomId}_key`;
     const key = sessionStorage.getItem(keyName);
-    console.log(`Retrieved encryption key for room ${roomId} with key name ${keyName}: ${key ? "Key found" : "No key found"}`);
     return key;
   } catch (error) {
     console.error("Error getting encryption key:", error);
@@ -87,7 +86,7 @@ export const promptForEncryptionKey = (roomId: string): string | null => {
 };
 
 /**
- * Derive a cryptographic key from a password/passphrase
+ * Derive a cryptographic key from a password/passphrase using PBKDF2
  * @param password The password or passphrase to derive the key from
  * @returns Promise resolving to a CryptoKey
  */
@@ -134,10 +133,10 @@ export const encryptMessage = async (message: string, password: string): Promise
   try {
     if (!message || !password) {
       console.error("Cannot encrypt: missing message or password");
-      return message;
+      throw new Error("Missing message or password for encryption");
     }
     
-    console.log(`Encrypting message of length ${message.length} with password`);
+    console.log(`Encrypting message of length ${message.length}`);
     
     // Derive key from password
     const key = await deriveKey(password);
@@ -166,13 +165,12 @@ export const encryptMessage = async (message: string, password: string): Promise
     // Convert to Base64
     const base64Encoded = btoa(String.fromCharCode(...new Uint8Array(combinedBuffer)));
     
-    console.log(`Encryption complete. Original length: ${message.length}, Encrypted length: ${base64Encoded.length}`);
+    console.log(`Encryption complete. Encrypted length: ${base64Encoded.length}`);
     
     return base64Encoded;
   } catch (error) {
     console.error('Encryption failed:', error);
-    // Return a special error marker that we can detect
-    return `ERROR_ENCRYPTING_${Date.now()}`;
+    throw new Error(`Encryption failed: ${error.message}`);
   }
 };
 
@@ -191,20 +189,10 @@ export const isBase64 = (str: string): boolean => {
 };
 
 /**
- * Check if an encrypted message has our error marker
- */
-const hasEncryptionError = (message: string): boolean => {
-  return message.startsWith('ERROR_ENCRYPTING_');
-};
-
-/**
  * Helper to determine if a message needs decryption
  */
 export const needsDecryption = (message: string): boolean => {
   if (!message) return false;
-  
-  // Skip error markers
-  if (hasEncryptionError(message)) return false;
   
   // Check if the message looks like base64 encoded
   return isBase64(message);
@@ -220,12 +208,7 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
   try {
     if (!encryptedMessage || !password) {
       console.error("Cannot decrypt: missing message or password");
-      return encryptedMessage;
-    }
-    
-    // Skip decryption if the message is an error marker
-    if (hasEncryptionError(encryptedMessage)) {
-      return "[Encryption failed when this message was sent]";
+      throw new Error("Missing encrypted message or password for decryption");
     }
     
     // Skip decryption if the message doesn't appear to be encrypted
@@ -234,7 +217,7 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
       return encryptedMessage;
     }
     
-    console.log(`Attempting to decrypt message of length ${encryptedMessage.length} with password length ${password.length}`);
+    console.log(`Attempting to decrypt message of length ${encryptedMessage.length}`);
     
     try {
       // Derive key from password
@@ -262,7 +245,7 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
       // Convert decrypted buffer to string
       const decryptedText = new TextDecoder().decode(decryptedBuffer);
       
-      console.log(`Decryption successful. Encrypted length: ${encryptedMessage.length}, Decrypted length: ${decryptedText.length}`);
+      console.log(`Decryption successful. Decrypted length: ${decryptedText.length}`);
       
       return decryptedText;
     } catch (e) {
@@ -275,101 +258,11 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
   }
 };
 
-// Backward compatibility function that works with both old and new encryption
-export const decryptMessageCompat = async (encryptedMessage: string, key: string): Promise<string> => {
-  // First try new WebCrypto decryption
-  try {
-    const result = await decryptMessage(encryptedMessage, key);
-    
-    // If we got a decryption error but it might be an old format message, try the old decryption
-    if (result.includes("[Decryption failed:")) {
-      console.log("Modern decryption failed, trying legacy decryption...");
-      return legacyDecryptMessage(encryptedMessage, key);
-    }
-    
-    return result;
-  } catch (error) {
-    console.error("Modern decryption error, falling back to legacy:", error);
-    return legacyDecryptMessage(encryptedMessage, key);
-  }
-};
-
-// Legacy decryption function (keep for backwards compatibility)
-export const legacyDecryptMessage = (encryptedMessage: string, key: string): string => {
-  try {
-    if (!encryptedMessage || !key) {
-      return encryptedMessage;
-    }
-    
-    console.log(`Attempting legacy decryption of message length ${encryptedMessage.length} with key ${key}`);
-    
-    // Simple check to see if the message looks like base64 encoded
-    if (!isBase64(encryptedMessage)) {
-      return encryptedMessage;
-    }
-    
-    try {
-      const encrypted = atob(encryptedMessage);
-      
-      // Legacy XOR decryption
-      const decrypted = encrypted
-        .split('')
-        .map((char, i) => 
-          String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
-        )
-        .join('');
-      
-      console.log(`Legacy decryption result length: ${decrypted.length}`);
-      
-      // Check if the result seems like valid text (contains spaces, reasonable char codes)
-      const isLikelyValidText = /[\s]/.test(decrypted) && 
-        !decrypted.split('').some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) > 126);
-      
-      if (!isLikelyValidText) {
-        console.warn("Legacy decryption output doesn't look like valid text");
-        return `[Could not decrypt message - incorrect key]`;
-      }
-      
-      return decrypted;
-    } catch (e) {
-      console.error('Legacy decryption failed:', e);
-      return `[Decryption failed: Invalid format]`;
-    }
-  } catch (e) {
-    console.error('Legacy decryption process error:', e);
-    return `[Decryption failed: ${e.message}]`;
-  }
-};
-
-// Backward compatibility function that works with both old and new encryption
+// For backward compatibility - we'll preserve these functions but make them use the new implementation
 export const encryptMessageCompat = async (message: string, key: string): Promise<string> => {
-  // Use the new WebCrypto encryption
-  try {
-    return await encryptMessage(message, key);
-  } catch (error) {
-    console.error("Modern encryption error, falling back to legacy:", error);
-    return legacyEncryptMessage(message, key);
-  }
+  return await encryptMessage(message, key);
 };
 
-// Legacy encryption function (keep for backwards compatibility)
-export const legacyEncryptMessage = (message: string, key: string): string => {
-  try {
-    if (!message || !key) {
-      return message;
-    }
-    
-    // XOR encryption
-    const encrypted = message
-      .split('')
-      .map((char, i) => 
-        String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
-      )
-      .join('');
-    
-    return btoa(encrypted);
-  } catch (e) {
-    console.error('Legacy encryption failed:', e);
-    return message;
-  }
+export const decryptMessageCompat = async (encryptedMessage: string, key: string): Promise<string> => {
+  return await decryptMessage(encryptedMessage, key);
 };

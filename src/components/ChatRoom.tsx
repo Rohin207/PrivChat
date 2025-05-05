@@ -13,7 +13,8 @@ import {
   UserCheck,
   UserX,
   Bell,
-  LoaderCircle
+  LoaderCircle,
+  KeyRound
 } from "lucide-react";
 import { useRoom, Message as MessageType, JoinRequest } from "@/contexts/RoomContext";
 import { useUser } from "@/contexts/UserContext";
@@ -132,6 +133,11 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
           }
         `}>
           {message.senderName}
+          {message.isEncrypted && (
+            <span className="ml-1" title="Encrypted message">
+              🔒
+            </span>
+          )}
         </div>
         <div className="break-words">
           {isDecrypting ? (
@@ -356,97 +362,97 @@ const ChatRoom = () => {
     }
   }, [currentRoom?.encryptionKey]);
   
-  // Updated encryption key submission handler
-  const handleEncryptionKeySubmit = async () => {
-    if (!encryptionKeyInput.trim() || !currentRoom) {
-      toast({
-        title: "Error",
-        description: "Please enter a valid encryption key",
-        variant: "destructive"
-      });
-      return;
-    }
+// Updated encryption key submission handler
+const handleEncryptionKeySubmit = async () => {
+  if (!encryptionKeyInput.trim() || !currentRoom) {
+    toast({
+      title: "Error",
+      description: "Please enter a valid encryption key",
+      variant: "destructive"
+    });
+    return;
+  }
+  
+  setIsTestingKey(true);
+  
+  try {
+    console.log("Testing encryption key:", encryptionKeyInput);
     
-    setIsTestingKey(true);
+    // Find an encrypted message to test with
+    const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
     
-    try {
-      console.log("Testing encryption key:", encryptionKeyInput);
+    // If there's a message to test with, try decrypting it
+    if (testMessage) {
+      const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
       
-      // Find an encrypted message to test with
-      const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
+      // Check if the decryption seems successful
+      const seemsValid = !decrypted.includes("[Decryption failed") && 
+                        !decrypted.includes("[Could not decrypt");
       
-      // If there's a message to test with, try decrypting it
-      if (testMessage) {
-        const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
-        
-        // Check if the decryption seems successful
-        const seemsValid = !decrypted.includes("[Decryption failed") && 
-                          !decrypted.includes("[Could not decrypt");
-        
-        console.log("Decryption test result:", decrypted);
-        console.log("Decryption seems valid:", seemsValid);
-        
-        if (!seemsValid) {
-          toast({
-            title: "Invalid Key",
-            description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
-            variant: "destructive"
-          });
-          setIsTestingKey(false);
-          return;
-        }
-      }
+      console.log("Decryption test result:", decrypted);
+      console.log("Decryption seems valid:", seemsValid);
       
-      // Save the encryption key to session storage
-      const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
-      
-      if (!keySaved) {
+      if (!seemsValid) {
         toast({
-          title: "Error",
-          description: "Failed to save encryption key",
+          title: "Invalid Key",
+          description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
           variant: "destructive"
         });
         setIsTestingKey(false);
         return;
       }
-      
-      // Update the current room state with the encryption key
-      if (setCurrentRoom) {
-        setCurrentRoom({
-          ...currentRoom,
-          encryptionKey: encryptionKeyInput
-        });
-        
-        // Force message decryption refresh
-        setMessageRefreshTrigger(prev => prev + 1);
-        
-        toast({
-          title: "Encryption Key Saved",
-          description: "Messages will now be decrypted with your key."
-        });
-        
-        // Close the dialog
-        setShowEncryptionPrompt(false);
-        setEncryptionKeyInput("");
-      } else {
-        console.error("setCurrentRoom is not defined");
-        toast({
-          title: "Error",
-          description: "Could not update room with encryption key",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      console.error("Error testing encryption key:", error);
+    }
+    
+    // Save the encryption key to session storage
+    const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+    
+    if (!keySaved) {
       toast({
         title: "Error",
-        description: "Failed to test encryption key. Please try again.",
+        description: "Failed to save encryption key",
         variant: "destructive"
       });
-    } finally {
       setIsTestingKey(false);
+      return;
     }
-  };
+    
+    // Update the current room state with the encryption key
+    if (setCurrentRoom) {
+      setCurrentRoom({
+        ...currentRoom,
+        encryptionKey: encryptionKeyInput
+      });
+      
+      // Force message decryption refresh
+      setMessageRefreshTrigger(prev => prev + 1);
+      
+      toast({
+        title: "Encryption Key Saved",
+        description: "Messages will now be decrypted with your key."
+      });
+      
+      // Close the dialog
+      setShowEncryptionPrompt(false);
+      setEncryptionKeyInput("");
+    } else {
+      console.error("setCurrentRoom is not defined");
+      toast({
+        title: "Error",
+        description: "Could not update room with encryption key",
+        variant: "destructive"
+      });
+    }
+  } catch (error) {
+    console.error("Error testing encryption key:", error);
+    toast({
+      title: "Error",
+      description: "Failed to test encryption key. Please try again.",
+      variant: "destructive"
+    });
+  } finally {
+    setIsTestingKey(false);
+  }
+};
   
   // If not room or not a participant, show loading
   if (!currentRoom) {
@@ -546,6 +552,28 @@ const ChatRoom = () => {
             className="rounded-full"
           >
             <Users className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              if (currentRoom?.encryptionKey) {
+                setShowCredentials(true);
+              } else {
+                setShowEncryptionPrompt(true);
+              }
+            }}
+            className="rounded-full relative"
+            title={currentRoom?.encryptionKey ? "View encryption key" : "Add encryption key"}
+          >
+            {currentRoom?.encryptionKey ? (
+              <Key className="h-5 w-5" />
+            ) : (
+              <div className="relative">
+                <KeyRound className="h-5 w-5" />
+                <div className="absolute -top-1 -right-1 bg-red-500 rounded-full w-2 h-2"></div>
+              </div>
+            )}
           </Button>
         </div>
       </header>
@@ -814,6 +842,14 @@ const ChatRoom = () => {
               This room contains encrypted messages. Please enter the encryption key provided by the room admin to decrypt them.
             </p>
             
+            <div className="bg-muted/30 p-3 rounded-md text-xs space-y-2">
+              <p className="font-semibold">How end-to-end encryption works:</p>
+              <p>1. Messages are encrypted before sending using AES-GCM encryption</p>
+              <p>2. Each message uses a unique initialization vector (IV) for security</p>
+              <p>3. Only users with the correct key can decrypt and read messages</p>
+              <p>4. The key is never sent to the server, keeping your messages private</p>
+            </div>
+            
             <Input 
               value={encryptionKeyInput} 
               onChange={(e) => setEncryptionKeyInput(e.target.value)} 
@@ -932,8 +968,3 @@ const ChatRoom = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  );
-};
-
-export default ChatRoom;
