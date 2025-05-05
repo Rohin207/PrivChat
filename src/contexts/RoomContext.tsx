@@ -1,3 +1,4 @@
+
 import React, { 
   createContext, 
   useState, 
@@ -60,8 +61,9 @@ type RoomContextType = {
   setCurrentRoom: React.Dispatch<React.SetStateAction<Room | null>> | null;
   rooms: Room[];
   setRooms: React.Dispatch<React.SetStateAction<Room[]>>;
-  createRoom: (roomName: string, password?: string, isPrivate?: boolean) => Promise<void>;
-  joinRoom: (roomId: string, password?: string) => Promise<boolean>;
+  availableRooms: Room[]; // Add this missing property
+  createRoom: (roomName: string, userId: string, userName: string) => Promise<Room>; // Fix return type
+  joinRoom: (roomId: string, password: string, user: any) => Promise<boolean>;
   leaveRoom: () => Promise<void>;
   deleteRoom: (roomId: string) => Promise<void>;
   sendMessage: (content: string, isSystemMessage?: boolean) => void;
@@ -73,6 +75,7 @@ type RoomContextType = {
   approveJoinRequest: (request: JoinRequest) => Promise<boolean>;
   rejectJoinRequest: (request: JoinRequest) => Promise<void>;
   requestToJoin: (roomId: string) => Promise<boolean>;
+  requestToJoinRoom: (roomId: string) => Promise<boolean>; // Add this alias
 };
 
 // Create the context with a default value of null
@@ -198,35 +201,42 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [socket, setCurrentRoom, navigate, currentRoom, toast]);
 
   // Create a new room
-  const createRoom = async (roomName: string, password?: string, isPrivate: boolean = false): Promise<void> => {
-    if (!socket || !user) return;
+  const createRoom = async (roomName: string, userId: string, userName: string): Promise<Room> => {
+    if (!socket || !user) {
+      throw new Error("Not connected or user not authenticated");
+    }
 
     const roomId = generateRandomId();
-    socket.emit('create_room', {
-      name: roomName,
-      password: password,
-      roomId: roomId,
-      isPrivate: isPrivate,
-    }, (response: { success: boolean, error?: string }) => {
-      if (response.success) {
-        toast({
-          title: "Room Created",
-          description: `Room "${roomName}" created successfully.`,
-        });
-        navigate(`/room/${roomId}`);
-      } else {
-        toast({
-          title: "Error",
-          description: response.error || "Failed to create room.",
-          variant: "destructive",
-        });
-      }
+    
+    return new Promise((resolve, reject) => {
+      socket.emit('create_room', {
+        name: roomName,
+        password: userId, // Using userId as the password
+        roomId: roomId,
+        isPrivate: false,
+      }, (response: { success: boolean, error?: string, room?: Room }) => {
+        if (response.success && response.room) {
+          toast({
+            title: "Room Created",
+            description: `Room "${roomName}" created successfully.`,
+          });
+          navigate(`/room/${roomId}`);
+          resolve(response.room);
+        } else {
+          toast({
+            title: "Error",
+            description: response.error || "Failed to create room.",
+            variant: "destructive",
+          });
+          reject(new Error(response.error || "Failed to create room"));
+        }
+      });
     });
   };
 
   // Join an existing room
-  const joinRoom = async (roomId: string, password?: string): Promise<boolean> => {
-    if (!socket || !user) return false;
+  const joinRoom = async (roomId: string, password: string, user: any): Promise<boolean> => {
+    if (!socket) return false;
 
     return new Promise((resolve) => {
       socket.emit('join_room', { roomId: roomId, password: password }, (response: { success: boolean, error?: string, room?: Room }) => {
@@ -412,6 +422,12 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  // Add an alias for requestToJoin for backward compatibility
+  const requestToJoinRoom = requestToJoin;
+
+  // Calculate available rooms (all rooms except current)
+  const availableRooms = rooms.filter(room => !currentRoom || room.id !== currentRoom.id);
+
   // Provide the context value
   const value: RoomContextType = {
     socket,
@@ -419,6 +435,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentRoom,
     rooms,
     setRooms,
+    availableRooms,
     createRoom,
     joinRoom,
     leaveRoom,
@@ -432,6 +449,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     approveJoinRequest,
     rejectJoinRequest,
     requestToJoin,
+    requestToJoinRoom,
   };
 
   return (
