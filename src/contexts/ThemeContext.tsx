@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 type Theme = 'classic' | 'romantic' | 'hacker';
 
@@ -22,18 +22,12 @@ interface ThemeProviderProps {
   children: ReactNode;
 }
 
-export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
-  // Fix the useState initialization to avoid dispatcher is null error
-  const [theme, setTheme] = useState<Theme>('classic');
-  
-  // Load the theme from localStorage in a useEffect
-  useEffect(() => {
+export const ThemeProvider = ({ children }: ThemeProviderProps) => {
+  const [theme, setTheme] = useState<Theme>(() => {
     // Try to get the theme from localStorage
     const savedTheme = localStorage.getItem('chat-theme');
-    if (savedTheme && (savedTheme === 'classic' || savedTheme === 'romantic' || savedTheme === 'hacker')) {
-      setTheme(savedTheme as Theme);
-    }
-  }, []);
+    return (savedTheme as Theme) || 'classic';
+  });
 
   useEffect(() => {
     // Save theme to localStorage
