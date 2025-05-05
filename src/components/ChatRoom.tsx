@@ -362,97 +362,97 @@ const ChatRoom = () => {
     }
   }, [currentRoom?.encryptionKey]);
   
-// Updated encryption key submission handler
-const handleEncryptionKeySubmit = async () => {
-  if (!encryptionKeyInput.trim() || !currentRoom) {
-    toast({
-      title: "Error",
-      description: "Please enter a valid encryption key",
-      variant: "destructive"
-    });
-    return;
-  }
-  
-  setIsTestingKey(true);
-  
-  try {
-    console.log("Testing encryption key:", encryptionKeyInput);
+  // Updated encryption key submission handler
+  const handleEncryptionKeySubmit = async () => {
+    if (!encryptionKeyInput.trim() || !currentRoom) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid encryption key",
+        variant: "destructive"
+      });
+      return;
+    }
     
-    // Find an encrypted message to test with
-    const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
+    setIsTestingKey(true);
     
-    // If there's a message to test with, try decrypting it
-    if (testMessage) {
-      const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
+    try {
+      console.log("Testing encryption key:", encryptionKeyInput);
       
-      // Check if the decryption seems successful
-      const seemsValid = !decrypted.includes("[Decryption failed") && 
-                        !decrypted.includes("[Could not decrypt");
+      // Find an encrypted message to test with
+      const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
       
-      console.log("Decryption test result:", decrypted);
-      console.log("Decryption seems valid:", seemsValid);
+      // If there's a message to test with, try decrypting it
+      if (testMessage) {
+        const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
+        
+        // Check if the decryption seems successful
+        const seemsValid = !decrypted.includes("[Decryption failed") && 
+                          !decrypted.includes("[Could not decrypt");
+        
+        console.log("Decryption test result:", decrypted);
+        console.log("Decryption seems valid:", seemsValid);
+        
+        if (!seemsValid) {
+          toast({
+            title: "Invalid Key",
+            description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
+            variant: "destructive"
+          });
+          setIsTestingKey(false);
+          return;
+        }
+      }
       
-      if (!seemsValid) {
+      // Save the encryption key to session storage
+      const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+      
+      if (!keySaved) {
         toast({
-          title: "Invalid Key",
-          description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
+          title: "Error",
+          description: "Failed to save encryption key",
           variant: "destructive"
         });
         setIsTestingKey(false);
         return;
       }
-    }
-    
-    // Save the encryption key to session storage
-    const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
-    
-    if (!keySaved) {
+      
+      // Update the current room state with the encryption key
+      if (setCurrentRoom) {
+        setCurrentRoom({
+          ...currentRoom,
+          encryptionKey: encryptionKeyInput
+        });
+        
+        // Force message decryption refresh
+        setMessageRefreshTrigger(prev => prev + 1);
+        
+        toast({
+          title: "Encryption Key Saved",
+          description: "Messages will now be decrypted with your key."
+        });
+        
+        // Close the dialog
+        setShowEncryptionPrompt(false);
+        setEncryptionKeyInput("");
+      } else {
+        console.error("setCurrentRoom is not defined");
+        toast({
+          title: "Error",
+          description: "Could not update room with encryption key",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error("Error testing encryption key:", error);
       toast({
         title: "Error",
-        description: "Failed to save encryption key",
+        description: "Failed to test encryption key. Please try again.",
         variant: "destructive"
       });
+    } finally {
       setIsTestingKey(false);
-      return;
     }
-    
-    // Update the current room state with the encryption key
-    if (setCurrentRoom) {
-      setCurrentRoom({
-        ...currentRoom,
-        encryptionKey: encryptionKeyInput
-      });
-      
-      // Force message decryption refresh
-      setMessageRefreshTrigger(prev => prev + 1);
-      
-      toast({
-        title: "Encryption Key Saved",
-        description: "Messages will now be decrypted with your key."
-      });
-      
-      // Close the dialog
-      setShowEncryptionPrompt(false);
-      setEncryptionKeyInput("");
-    } else {
-      console.error("setCurrentRoom is not defined");
-      toast({
-        title: "Error",
-        description: "Could not update room with encryption key",
-        variant: "destructive"
-      });
-    }
-  } catch (error) {
-    console.error("Error testing encryption key:", error);
-    toast({
-      title: "Error",
-      description: "Failed to test encryption key. Please try again.",
-      variant: "destructive"
-    });
-  } finally {
-    setIsTestingKey(false);
-  }
-};
+  };
   
   // If not room or not a participant, show loading
   if (!currentRoom) {
@@ -967,4 +967,3 @@ const handleEncryptionKeySubmit = async () => {
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
