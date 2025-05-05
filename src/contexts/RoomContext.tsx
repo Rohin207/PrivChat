@@ -1,9 +1,9 @@
+
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
-import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey, promptForEncryptionKey } from '../utils/crypto';
+import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey, promptForEncryptionKey, encryptMessageCompat, decryptMessageCompat } from '../utils/crypto';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '../hooks/use-toast';
-import { encryptMessage, decryptMessage } from '../utils/crypto';
 
 export interface Message {
   id: string;
@@ -1063,7 +1063,8 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       // If encryption is enabled and it's not a system message, encrypt the content
       let finalContent = content;
       if (currentRoom.encryptionKey && !isSystem) {
-        finalContent = encryptMessage(content, currentRoom.encryptionKey);
+        // Fix: Await the async encryption function
+        finalContent = await encryptMessageCompat(content, currentRoom.encryptionKey);
       }
       
       // Add message to Supabase
@@ -1092,7 +1093,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   };
 
   // Send a private message
-  const sendPrivateMessage = (receiverId: string, content: string) => {
+  const sendPrivateMessage = async (receiverId: string, content: string) => {
     const userId = sessionStorage.getItem('userId');
     const userName = sessionStorage.getItem('userName');
     
