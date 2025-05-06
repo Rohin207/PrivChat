@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -10,7 +9,6 @@ import {
   User, 
   Users, 
   Trash2,
-  Key,
   UserCheck,
   UserX,
   Bell,
@@ -30,12 +28,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  encryptMessageCompat, 
-  decryptMessageCompat, 
-  promptForEncryptionKey, 
-  saveRoomEncryptionKey, 
-  getRoomEncryptionKey,
-  needsDecryption
+  encryptMessage,
+  decryptMessage,
+  isEncrypted
 } from "@/utils/crypto";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -44,26 +39,27 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "./ui/badge";
 
 // ChatMessage component
-const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encryptionKey?: string }) => {
+const ChatMessage = ({ message, roomId, roomPassword }: { 
+  message: MessageType, 
+  roomId: string, 
+  roomPassword: string 
+}) => {
   const userId = sessionStorage.getItem('userId');
   const isCurrentUser = message.senderId === userId;
   const isSystem = message.senderId === 'system' || message.isSystemMessage;
-  const { toast } = useToast();
   const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptionAttempted, setDecryptionAttempted] = useState(false);
   
-  // Decrypt the message if it's encrypted and we have the key
+  // Decrypt the message if it's encrypted
   useEffect(() => {
     let isMounted = true;
     
     const decryptIfNeeded = async () => {
       // Don't re-attempt decryption if we've already tried
-      if (decryptionAttempted) {
-        return;
-      }
+      if (decryptionAttempted) return;
       
-      // Don't attempt decryption if we don't have what we need
+      // Don't attempt decryption for empty messages
       if (!message.content) {
         if (isMounted) setDecryptedContent(message.content || "");
         setDecryptionAttempted(true);
@@ -71,38 +67,20 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
       }
       
       // If the message doesn't look like it needs decryption, just use the content
-      if (!needsDecryption(message.content)) {
+      if (!isEncrypted(message.content)) {
         if (isMounted) setDecryptedContent(message.content);
         setDecryptionAttempted(true);
         return;
       }
       
-      // If message is encrypted but we don't have a key, show locked message
-      if (!encryptionKey) {
-        if (isMounted) setDecryptedContent("🔒 [Encrypted message - encryption key required]");
-        setDecryptionAttempted(true);
-        return;
-      }
-      
+      // For encrypted messages, attempt decryption
       setIsDecrypting(true);
       try {
-        console.log(`Attempting to decrypt message with key length: ${encryptionKey.length}`);
-        console.log(`Message content to decrypt: ${message.content.substring(0, 20)}...`);
-        
-        // Use the backward compatible decryption function
-        const decrypted = await decryptMessageCompat(message.content, encryptionKey);
-        
-        // Log the result for debugging
-        if (decrypted.includes("[Decryption failed")) {
-          console.warn("Decryption failed:", decrypted);
-        } else {
-          console.log("Successfully decrypted message of length:", decrypted.length);
-        }
-        
+        const decrypted = await decryptMessage(message.content, roomId, roomPassword);
         if (isMounted) setDecryptedContent(decrypted);
       } catch (error) {
         console.error("Failed to decrypt message:", error);
-        if (isMounted) setDecryptedContent("⚠️ [Encrypted message - decryption failed]");
+        if (isMounted) setDecryptedContent("[Decryption failed]");
       } finally {
         if (isMounted) {
           setIsDecrypting(false);
@@ -116,27 +94,18 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
     return () => {
       isMounted = false;
     };
-  }, [message.content, encryptionKey, decryptionAttempted]);
-  
-  // Reset decryption state when encryption key changes
-  useEffect(() => {
-    if (encryptionKey) {
-      setDecryptionAttempted(false);
-    }
-  }, [encryptionKey]);
+  }, [message.content, roomId, roomPassword, decryptionAttempted]);
   
   // Prepare the content to display
   let displayContent = message.content || "";
   
-  if (needsDecryption(message.content)) {
+  if (isEncrypted(message.content)) {
     if (isDecrypting) {
       displayContent = "Decrypting...";
     } else if (decryptedContent) {
       displayContent = decryptedContent;
-    } else if (!encryptionKey) {
-      displayContent = "🔒 [Encrypted message - encryption key required]";
     } else {
-      displayContent = "⚠️ [Encrypted message - unable to decrypt]";
+      displayContent = "[Could not decrypt message]";
     }
   }
   
@@ -214,52 +183,6 @@ const ChatRoom = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
 
-  // Add a state to track if we need to force refresh messages
-  const [messageRefreshTrigger, setMessageRefreshTrigger] = useState(0);
-  
-  // Add a new state for the encryption key prompt
-  const [showEncryptionPrompt, setShowEncryptionPrompt] = useState(false);
-  const [encryptionKeyInput, setEncryptionKeyInput] = useState("");
-  const [isTestingKey, setIsTestingKey] = useState(false);
-
-  // Check for encryption key and prompt if needed
-  useEffect(() => {
-    if (!currentRoom) return;
-
-    // Always check for an existing key in session storage first
-    const existingKey = getRoomEncryptionKey(currentRoom.id);
-    
-    if (existingKey) {
-      console.log("Found existing encryption key in session storage");
-      // If we have a key but it's not in the room state, update it
-      if (!currentRoom.encryptionKey) {
-        console.log("Updating room with existing encryption key from storage");
-        setCurrentRoom({
-          ...currentRoom,
-          encryptionKey: existingKey
-        });
-      }
-      return;
-    }
-    
-    // If no key in storage, check if we need one (room has encrypted messages)
-    const hasEncryptedMessages = currentRoom.messages.some(m => m.isEncrypted);
-    
-    if (hasEncryptedMessages && !showEncryptionPrompt && !currentRoom.encryptionKey) {
-      console.log("Room has encrypted messages but no key - showing prompt");
-      setShowEncryptionPrompt(true);
-    }
-  }, [currentRoom, setCurrentRoom, showEncryptionPrompt]);
-
-  // New effect to refresh message decryption when encryption key changes
-  useEffect(() => {
-    if (currentRoom && currentRoom.encryptionKey) {
-      // Force message re-rendering when encryption key changes
-      console.log("Encryption key changed, refreshing messages");
-      setMessageRefreshTrigger(prev => prev + 1);
-    }
-  }, [currentRoom?.encryptionKey]);
-  
   // Handle window/tab close to leave room
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -324,86 +247,6 @@ const ChatRoom = () => {
     
     return () => clearInterval(interval);
   }, [currentRoom, fetchJoinRequests, user?.id]);
-
-  // Handle encryption key submission with improved testing
-  const handleEncryptionKeySubmit = async () => {
-    if (!encryptionKeyInput.trim() || !currentRoom) {
-      toast({
-        title: "Error",
-        description: "Please enter a valid encryption key",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsTestingKey(true);
-    
-    try {
-      console.log("Testing encryption key:", encryptionKeyInput);
-      
-      // Find an encrypted message to test with
-      const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
-      
-      let keyIsValid = true;
-      
-      // If there's a message to test with, try decrypting it
-      if (testMessage) {
-        const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
-        
-        // Check if the decryption seems successful
-        keyIsValid = !decrypted.includes("[Decryption failed") && 
-                     !decrypted.includes("[Could not decrypt");
-        
-        console.log("Decryption test result:", decrypted);
-        console.log("Decryption key seems valid:", keyIsValid);
-        
-        if (!keyIsValid) {
-          toast({
-            title: "Invalid Key",
-            description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
-            variant: "destructive"
-          });
-          setIsTestingKey(false);
-          return;
-        }
-      }
-      
-      // Even if we couldn't validate with a test message, save the key and try it
-      console.log("Saving encryption key to storage and updating room state");
-      
-      // Save the encryption key to session storage
-      saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
-      
-      // Update the current room state with the encryption key
-      if (setCurrentRoom) {
-        setCurrentRoom({
-          ...currentRoom,
-          encryptionKey: encryptionKeyInput
-        });
-        
-        // Force message decryption refresh
-        setMessageRefreshTrigger(prev => prev + 1);
-        
-        toast({
-          title: "Encryption Key Saved",
-          description: "Messages will now be decrypted with your key."
-        });
-        
-        // Close the dialog
-        setShowEncryptionPrompt(false);
-        setEncryptionKeyInput("");
-      }
-    } catch (error) {
-      console.error("Error testing encryption key:", error);
-      toast({
-        title: "Error",
-        description: "Failed to test encryption key. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsTestingKey(false);
-    }
-  };
   
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -413,10 +256,12 @@ const ChatRoom = () => {
     setIsEncrypting(true);
     
     try {
-      // Encrypt the message before sending, using async encryption
-      const encryptedContent = currentRoom.encryptionKey 
-        ? await encryptMessageCompat(message.trim(), currentRoom.encryptionKey)
-        : message.trim();
+      // Encrypt the message before sending using the automatic encryption
+      const encryptedContent = await encryptMessage(
+        message.trim(), 
+        currentRoom.id, 
+        currentRoom.password
+      );
       
       sendMessage(encryptedContent);
       setMessage("");
@@ -463,8 +308,6 @@ const ChatRoom = () => {
     
     if (!privateMessage.trim() || !selectedUser) return;
     
-    // In a real app, this would be encrypted with a shared key
-    // For now, just send as-is since private messages don't have encryption
     sendPrivateMessage(selectedUser, privateMessage);
     setPrivateMessage("");
     setShowPrivateChat(false);
@@ -479,21 +322,6 @@ const ChatRoom = () => {
 
   const handleRejectRequest = async (request: JoinRequest) => {
     await rejectJoinRequest(request);
-  };
-
-  // Add a method to copy encryption key to clipboard
-  const copyEncryptionKey = async () => {
-    if (!currentRoom?.encryptionKey) return;
-    
-    try {
-      await navigator.clipboard.writeText(currentRoom.encryptionKey);
-      toast({
-        title: "Copied!",
-        description: "Encryption key copied to clipboard",
-      });
-    } catch (err) {
-      console.error("Failed to copy encryption key:", err);
-    }
   };
 
   // If not room or not a participant, show loading
@@ -543,7 +371,7 @@ const ChatRoom = () => {
             onClick={() => setShowCredentials(true)}
             className="rounded-full"
           >
-            <Key className="h-5 w-5" />
+            <MessageSquare className="h-5 w-5" />
           </Button>
 
           {user?.isAdmin && joinRequestCount > 0 && (
@@ -610,7 +438,9 @@ const ChatRoom = () => {
               {activeChatData.messages.map(message => (
                 <ChatMessage 
                   key={message.id} 
-                  message={message} 
+                  message={message}
+                  roomId={currentRoom.id}
+                  roomPassword={currentRoom.password}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -634,13 +464,14 @@ const ChatRoom = () => {
             </form>
           </div>
         ) : (
-          // Room Chat - this is where we use the encryption key to decrypt messages
-          <div key={messageRefreshTrigger}>
+          // Room Chat - now using automatic encryption based on room ID and password
+          <div>
             {currentRoom.messages.map(message => (
               <ChatMessage 
-                key={`${message.id}-${messageRefreshTrigger}`}
-                message={message} 
-                encryptionKey={currentRoom.encryptionKey}
+                key={message.id}
+                message={message}
+                roomId={currentRoom.id}
+                roomPassword={currentRoom.password}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -790,102 +621,21 @@ const ChatRoom = () => {
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Encryption Key</label>
-                {currentRoom.encryptionKey && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    className="h-8 px-2 text-xs"
-                    onClick={copyEncryptionKey}
-                  >
-                    Copy
-                  </Button>
-                )}
-              </div>
-              {currentRoom.encryptionKey ? (
-                <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
-                  {currentRoom.encryptionKey}
-                </div>
-              ) : (
-                <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground italic">
-                  No encryption key available. You may not be able to read encrypted messages.
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="mt-2 w-full"
-                    onClick={() => setShowEncryptionPrompt(true)}
-                  >
-                    Enter Encryption Key
-                  </Button>
-                </div>
-              )}
-              {currentRoom.admin === user?.id && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  As the admin, share this key with other participants so they can decrypt messages.
+              <div className="text-sm">
+                <p className="font-medium mb-2">End-to-End Encryption</p>
+                <p className="text-muted-foreground">
+                  This room uses automatic end-to-end encryption. All messages are encrypted and decrypted
+                  automatically using the room ID and password.
                 </p>
-              )}
+                <p className="text-muted-foreground mt-2">
+                  Only people who know both the room ID and password can decrypt messages.
+                </p>
+              </div>
             </div>
           </div>
           
           <DialogFooter>
             <Button onClick={() => setShowCredentials(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Encryption Key Dialog */}
-      <Dialog open={showEncryptionPrompt} onOpenChange={setShowEncryptionPrompt}>
-        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
-          <DialogHeader>
-            <DialogTitle>Enter Encryption Key</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              This room contains encrypted messages. Please enter the encryption key provided by the room admin to decrypt them.
-            </p>
-            
-            <Input 
-              value={encryptionKeyInput} 
-              onChange={(e) => setEncryptionKeyInput(e.target.value)} 
-              placeholder="Paste encryption key here" 
-              autoFocus
-              disabled={isTestingKey}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !isTestingKey) {
-                  e.preventDefault();
-                  handleEncryptionKeySubmit();
-                }
-              }}
-              className="font-mono"
-            />
-          </div>
-          
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowEncryptionPrompt(false);
-                setEncryptionKeyInput("");
-              }}
-              disabled={isTestingKey}
-            >
-              Skip
-            </Button>
-            <Button 
-              onClick={handleEncryptionKeySubmit}
-              disabled={!encryptionKeyInput.trim() || isTestingKey}
-            >
-              {isTestingKey ? (
-                <div className="flex items-center space-x-2">
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                  <span>Testing Key...</span>
-                </div>
-              ) : (
-                "Save Key"
-              )}
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

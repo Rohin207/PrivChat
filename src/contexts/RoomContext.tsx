@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User } from './UserContext';
-import { generateRandomId, saveRoomEncryptionKey, getRoomEncryptionKey, promptForEncryptionKey, encryptMessageCompat, decryptMessageCompat } from '../utils/crypto';
+import { generateRandomId, encryptMessage, decryptMessage } from '../utils/crypto';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '../hooks/use-toast';
 
@@ -30,7 +30,6 @@ export interface Room {
   admin: string; // User ID of the admin
   participants: User[];
   messages: Message[];
-  encryptionKey?: string;
   joinRequests?: JoinRequest[];
   pendingApproval?: boolean; // Flag to indicate if the user is pending approval
 }
@@ -388,7 +387,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
   const createRoom = async (name: string, adminId: string, adminName: string): Promise<Room> => {
     const roomId = generateRandomId(16);
     const roomPassword = generateRandomId(8); 
-    const encryptionKey = generateRandomId(32);
     
     try {
       // Insert the room into Supabase
@@ -435,9 +433,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       
       console.log("Room created:", roomId, "with password:", roomPassword);
       
-      // Save encryption key to session storage
-      saveRoomEncryptionKey(roomId, encryptionKey);
-      
       // Create room object for the UI
       const newRoom: Room = {
         id: roomId,
@@ -452,7 +447,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           joinedAt: new Date()
         }],
         messages: [],
-        encryptionKey,
         joinRequests: []
       };
       
@@ -764,44 +758,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           .from('participants')
           .select('*')
           .eq('room_id', roomId);
-        
-        // Get stored encryption key from session
-        let encryptionKey = getRoomEncryptionKey(roomId);
-
-        // If the user is admin (roomCreator) and doesn't have an encryption key yet, 
-        // always generate a new key and save it
-        if (!encryptionKey && roomData.admin_id === user.id) {
-          encryptionKey = generateRandomId(32);
-          saveRoomEncryptionKey(roomId, encryptionKey);
-          
-          // Alert admin about the encryption key
-          toast({
-            title: "Encryption Key Generated",
-            description: "Please share this key with participants so they can decrypt messages.",
-          });
-          
-          // Force admin to see the key
-          setTimeout(() => {
-            alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
-          }, 1000);
-        } 
-        // If user is not admin but already a participant, try to get the key from a prompt
-        else if (!encryptionKey && existingParticipant) {
-          encryptionKey = promptForEncryptionKey(roomId);
-          
-          if (!encryptionKey) {
-            toast({
-              title: "Warning",
-              description: "No encryption key provided. You won't be able to read encrypted messages.",
-              variant: "destructive"
-            });
-          } else {
-            toast({
-              title: "Encryption Key Saved",
-              description: "You can now decrypt messages in this room.",
-            });
-          }
-        }
       
         // Create room object for the UI
         const newRoom: Room = {
@@ -825,7 +781,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
             isEncrypted: m.is_encrypted,
             isSystemMessage: m.is_system_message
           })) || [],
-          encryptionKey: encryptionKey || undefined
         };
         
         // If admin, fetch join requests
@@ -858,21 +813,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           variant: 'destructive'
         });
         return false;
-      }
-      
-      // Generate new encryption key for admin
-      let encryptionKey = getRoomEncryptionKey(roomId);
-      if (!encryptionKey && roomData.admin_id === user.id) {
-        encryptionKey = generateRandomId(32);
-        saveRoomEncryptionKey(roomId, encryptionKey);
-        
-        // Alert admin about the encryption key
-        setTimeout(() => {
-          alert(`IMPORTANT: Share this encryption key with all participants:\n\n${encryptionKey}\n\nThis key is required to read encrypted messages!`);
-        }, 1000);
-      } else if (!encryptionKey) {
-        // Always prompt for encryption key for non-admin users
-        encryptionKey = promptForEncryptionKey(roomId);
       }
       
       // Add system message
@@ -935,7 +875,6 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           isEncrypted: m.is_encrypted,
           isSystemMessage: m.is_system_message
         })) || [],
-        encryptionKey: encryptionKey
       };
       
       // If admin, fetch join requests
@@ -1057,16 +996,9 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
         senderName: isSystem ? 'System' : userName,
         content,
         timestamp: new Date(),
-        isEncrypted: !isSystem && !!currentRoom.encryptionKey,
+        isEncrypted: !isSystem, // Now all non-system messages are encrypted
         isSystemMessage: isSystem
       };
-      
-      // If encryption is enabled and it's not a system message, encrypt the content
-      let finalContent = content;
-      if (currentRoom.encryptionKey && !isSystem) {
-        // Fix: Await the async encryption function
-        finalContent = await encryptMessageCompat(content, currentRoom.encryptionKey);
-      }
       
       // Add message to Supabase
       await supabase
@@ -1075,7 +1007,7 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
           room_id: currentRoom.id,
           sender_id: newMessage.senderId,
           sender_name: newMessage.senderName,
-          content: finalContent,
+          content: newMessage.content,
           is_encrypted: newMessage.isEncrypted,
           is_system_message: isSystem
         });
@@ -1095,6 +1027,8 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
 
   // Send a private message
   const sendPrivateMessage = async (receiverId: string, content: string) => {
+    if (!currentRoom) return;
+    
     const userId = sessionStorage.getItem('userId');
     const userName = sessionStorage.getItem('userName');
     
@@ -1114,12 +1048,20 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
       setPrivateChats([...privateChats, privateChat]);
     }
     
+    // Try to encrypt the private message with room credentials
+    let encryptedContent = content;
+    try {
+      encryptedContent = await encryptMessage(content, currentRoom.id, currentRoom.password);
+    } catch (err) {
+      console.error("Failed to encrypt private message:", err);
+    }
+    
     // Add the message
     const newMessage: Message = {
       id: generateRandomId(),
       senderId: userId,
       senderName: userName,
-      content,
+      content: encryptedContent,
       timestamp: new Date(),
       isEncrypted: true
     };
@@ -1127,32 +1069,3 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     privateChat.messages.push(newMessage);
     setPrivateChats(privateChats.map(chat => 
       chat.id === chatId ? {...chat, messages: [...chat.messages, newMessage]} : chat
-    ));
-    setActivePrivateChat(chatId);
-  };
-
-  const value = {
-    currentRoom,
-    setCurrentRoom,
-    privateChats,
-    setPrivateChats,
-    activePrivateChat,
-    setActivePrivateChat,
-    createRoom,
-    joinRoom,
-    requestToJoinRoom,
-    approveJoinRequest,
-    rejectJoinRequest,
-    leaveRoom,
-    sendMessage,
-    sendPrivateMessage,
-    availableRooms,
-    fetchJoinRequests,
-  };
-
-  return (
-    <RoomContext.Provider value={value}>
-      {children}
-    </RoomContext.Provider>
-  );
-};
