@@ -1069,3 +1069,44 @@ export const RoomProvider = ({ children }: RoomProviderProps) => {
     privateChat.messages.push(newMessage);
     setPrivateChats(privateChats.map(chat => 
       chat.id === chatId ? {...chat, messages: [...chat.messages, newMessage]} : chat
+    ));
+    
+    // Save to Supabase
+    try {
+      await supabase.from('private_messages').insert({
+        chat_id: chatId,
+        sender_id: userId,
+        sender_name: userName,
+        content: encryptedContent,
+        is_encrypted: true
+      });
+    } catch (error) {
+      console.error("Error saving private message:", error);
+    }
+  };
+
+  return (
+    <RoomContext.Provider
+      value={{
+        currentRoom,
+        setCurrentRoom,
+        privateChats,
+        setPrivateChats,
+        activePrivateChat,
+        setActivePrivateChat,
+        createRoom,
+        joinRoom,
+        requestToJoinRoom,
+        approveJoinRequest,
+        rejectJoinRequest,
+        leaveRoom,
+        sendMessage,
+        sendPrivateMessage,
+        availableRooms,
+        fetchJoinRequests
+      }}
+    >
+      {children}
+    </RoomContext.Provider>
+  );
+};
