@@ -194,7 +194,7 @@ export const isBase64 = (str: string): boolean => {
  * Check if an encrypted message has our error marker
  */
 const hasEncryptionError = (message: string): boolean => {
-  return message.startsWith('ERROR_ENCRYPTING_');
+  return typeof message === 'string' && message.startsWith('ERROR_ENCRYPTING_');
 };
 
 /**
@@ -234,7 +234,7 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
       return encryptedMessage;
     }
     
-    console.log(`Attempting to decrypt message of length ${encryptedMessage.length} with password length ${password.length}`);
+    console.log(`Attempting to decrypt message of length ${encryptedMessage.length} with password of length ${password.length}`);
     
     try {
       // Derive key from password
@@ -277,6 +277,13 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
 
 // Backward compatibility function that works with both old and new encryption
 export const decryptMessageCompat = async (encryptedMessage: string, key: string): Promise<string> => {
+  if (!encryptedMessage || !key) {
+    console.log("Cannot decrypt: missing message or key");
+    return encryptedMessage;
+  }
+
+  console.log(`Attempting to decrypt message compatibly. Message length: ${encryptedMessage.length}, Key length: ${key.length}`);
+  
   // First try new WebCrypto decryption
   try {
     const result = await decryptMessage(encryptedMessage, key);

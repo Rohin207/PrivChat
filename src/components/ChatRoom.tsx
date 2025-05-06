@@ -57,7 +57,7 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
     
     const decryptIfNeeded = async () => {
       // Don't attempt decryption if we don't have what we need
-      if (!message.content || !message.isEncrypted || !encryptionKey) {
+      if (!message.content || !encryptionKey) {
         return;
       }
       
@@ -188,6 +188,49 @@ const ChatRoom = () => {
   // Add a state to track if we need to force refresh messages
   const [messageRefreshTrigger, setMessageRefreshTrigger] = useState(0);
   
+  // Add a new state for the encryption key prompt
+  const [showEncryptionPrompt, setShowEncryptionPrompt] = useState(false);
+  const [encryptionKeyInput, setEncryptionKeyInput] = useState("");
+  const [isTestingKey, setIsTestingKey] = useState(false);
+
+  // Check for encryption key and prompt if needed
+  useEffect(() => {
+    if (!currentRoom) return;
+
+    // Always check for an existing key in session storage first
+    const existingKey = getRoomEncryptionKey(currentRoom.id);
+    
+    if (existingKey) {
+      console.log("Found existing encryption key in session storage");
+      // If we have a key but it's not in the room state, update it
+      if (!currentRoom.encryptionKey) {
+        console.log("Updating room with existing encryption key from storage");
+        setCurrentRoom({
+          ...currentRoom,
+          encryptionKey: existingKey
+        });
+      }
+      return;
+    }
+    
+    // If no key in storage, check if we need one (room has encrypted messages)
+    const hasEncryptedMessages = currentRoom.messages.some(m => m.isEncrypted);
+    
+    if (hasEncryptedMessages && !showEncryptionPrompt && !currentRoom.encryptionKey) {
+      console.log("Room has encrypted messages but no key - showing prompt");
+      setShowEncryptionPrompt(true);
+    }
+  }, [currentRoom, setCurrentRoom, showEncryptionPrompt]);
+
+  // New effect to refresh message decryption when encryption key changes
+  useEffect(() => {
+    if (currentRoom && currentRoom.encryptionKey) {
+      // Force message re-rendering when encryption key changes
+      console.log("Encryption key changed, refreshing messages");
+      setMessageRefreshTrigger(prev => prev + 1);
+    }
+  }, [currentRoom?.encryptionKey]);
+  
   // Handle window/tab close to leave room
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -252,6 +295,86 @@ const ChatRoom = () => {
     
     return () => clearInterval(interval);
   }, [currentRoom, fetchJoinRequests, user?.id]);
+
+  // Handle encryption key submission with improved testing
+  const handleEncryptionKeySubmit = async () => {
+    if (!encryptionKeyInput.trim() || !currentRoom) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid encryption key",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setIsTestingKey(true);
+    
+    try {
+      console.log("Testing encryption key:", encryptionKeyInput);
+      
+      // Find an encrypted message to test with
+      const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
+      
+      let keyIsValid = true;
+      
+      // If there's a message to test with, try decrypting it
+      if (testMessage) {
+        const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
+        
+        // Check if the decryption seems successful
+        keyIsValid = !decrypted.includes("[Decryption failed") && 
+                     !decrypted.includes("[Could not decrypt");
+        
+        console.log("Decryption test result:", decrypted);
+        console.log("Decryption key seems valid:", keyIsValid);
+        
+        if (!keyIsValid) {
+          toast({
+            title: "Invalid Key",
+            description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
+            variant: "destructive"
+          });
+          setIsTestingKey(false);
+          return;
+        }
+      }
+      
+      // Even if we couldn't validate with a test message, save the key and try it
+      console.log("Saving encryption key to storage and updating room state");
+      
+      // Save the encryption key to session storage
+      saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
+      
+      // Update the current room state with the encryption key
+      if (setCurrentRoom) {
+        setCurrentRoom({
+          ...currentRoom,
+          encryptionKey: encryptionKeyInput
+        });
+        
+        // Force message decryption refresh
+        setMessageRefreshTrigger(prev => prev + 1);
+        
+        toast({
+          title: "Encryption Key Saved",
+          description: "Messages will now be decrypted with your key."
+        });
+        
+        // Close the dialog
+        setShowEncryptionPrompt(false);
+        setEncryptionKeyInput("");
+      }
+    } catch (error) {
+      console.error("Error testing encryption key:", error);
+      toast({
+        title: "Error",
+        description: "Failed to test encryption key. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsTestingKey(false);
+    }
+  };
   
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -329,125 +452,21 @@ const ChatRoom = () => {
     await rejectJoinRequest(request);
   };
 
-  // Add a new state for the encryption key prompt
-  const [showEncryptionPrompt, setShowEncryptionPrompt] = useState(false);
-  const [encryptionKeyInput, setEncryptionKeyInput] = useState("");
-  const [isTestingKey, setIsTestingKey] = useState(false);
-  
-  // Add a new effect to check for encryption key
-  useEffect(() => {
-    if (!currentRoom) return;
-    
-    // If room has messages that need encryption key and we don't have one, prompt for it
-    const hasEncryptedMessages = currentRoom.messages.some(m => m.isEncrypted);
-    const hasEncryptionKey = !!currentRoom.encryptionKey;
-    
-    if (hasEncryptedMessages && !hasEncryptionKey && !showEncryptionPrompt) {
-      setShowEncryptionPrompt(true);
-    }
-  }, [currentRoom, showEncryptionPrompt]);
-
-  // New effect to refresh message decryption when encryption key changes
-  useEffect(() => {
-    if (currentRoom && currentRoom.encryptionKey) {
-      // Force message re-rendering when encryption key changes
-      console.log("Encryption key changed, refreshing messages");
-      setMessageRefreshTrigger(prev => prev + 1);
-    }
-  }, [currentRoom?.encryptionKey]);
-  
-  // Updated encryption key submission handler
-  const handleEncryptionKeySubmit = async () => {
-    if (!encryptionKeyInput.trim() || !currentRoom) {
-      toast({
-        title: "Error",
-        description: "Please enter a valid encryption key",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsTestingKey(true);
+  // Add a method to copy encryption key to clipboard
+  const copyEncryptionKey = async () => {
+    if (!currentRoom?.encryptionKey) return;
     
     try {
-      console.log("Testing encryption key:", encryptionKeyInput);
-      
-      // Find an encrypted message to test with
-      const testMessage = currentRoom.messages.find(m => m.isEncrypted && needsDecryption(m.content));
-      
-      // If there's a message to test with, try decrypting it
-      if (testMessage) {
-        const decrypted = await decryptMessageCompat(testMessage.content, encryptionKeyInput);
-        
-        // Check if the decryption seems successful
-        const seemsValid = !decrypted.includes("[Decryption failed") && 
-                          !decrypted.includes("[Could not decrypt");
-        
-        console.log("Decryption test result:", decrypted);
-        console.log("Decryption seems valid:", seemsValid);
-        
-        if (!seemsValid) {
-          toast({
-            title: "Invalid Key",
-            description: "This key cannot decrypt the messages in this room. Please try again with the correct key.",
-            variant: "destructive"
-          });
-          setIsTestingKey(false);
-          return;
-        }
-      }
-      
-      // Save the encryption key to session storage
-      const keySaved = saveRoomEncryptionKey(currentRoom.id, encryptionKeyInput);
-      
-      if (!keySaved) {
-        toast({
-          title: "Error",
-          description: "Failed to save encryption key",
-          variant: "destructive"
-        });
-        setIsTestingKey(false);
-        return;
-      }
-      
-      // Update the current room state with the encryption key
-      if (setCurrentRoom) {
-        setCurrentRoom({
-          ...currentRoom,
-          encryptionKey: encryptionKeyInput
-        });
-        
-        // Force message decryption refresh
-        setMessageRefreshTrigger(prev => prev + 1);
-        
-        toast({
-          title: "Encryption Key Saved",
-          description: "Messages will now be decrypted with your key."
-        });
-        
-        // Close the dialog
-        setShowEncryptionPrompt(false);
-        setEncryptionKeyInput("");
-      } else {
-        console.error("setCurrentRoom is not defined");
-        toast({
-          title: "Error",
-          description: "Could not update room with encryption key",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      console.error("Error testing encryption key:", error);
+      await navigator.clipboard.writeText(currentRoom.encryptionKey);
       toast({
-        title: "Error",
-        description: "Failed to test encryption key. Please try again.",
-        variant: "destructive"
+        title: "Copied!",
+        description: "Encryption key copied to clipboard",
       });
-    } finally {
-      setIsTestingKey(false);
+    } catch (err) {
+      console.error("Failed to copy encryption key:", err);
     }
   };
-  
+
   // If not room or not a participant, show loading
   if (!currentRoom) {
     return (
@@ -464,22 +483,6 @@ const ChatRoom = () => {
     
   const joinRequestCount = currentRoom?.joinRequests?.length || 0;
 
-  // Add a new method to copy encryption key to clipboard
-  const copyEncryptionKey = async () => {
-    if (!currentRoom?.encryptionKey) return;
-    
-    try {
-      await navigator.clipboard.writeText(currentRoom.encryptionKey);
-      toast({
-        title: "Copied!",
-        description: "Encryption key copied to clipboard",
-      });
-    } catch (err) {
-      console.error("Failed to copy encryption key:", err);
-    }
-  };
-
-  // Clean up the render portion to make sure encryption key is properly used
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
