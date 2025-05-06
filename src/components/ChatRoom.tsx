@@ -12,7 +12,8 @@ import {
   UserCheck,
   UserX,
   Bell,
-  LoaderCircle
+  LoaderCircle,
+  Clock
 } from "lucide-react";
 import { useRoom, Message as MessageType, JoinRequest } from "@/contexts/RoomContext";
 import { useUser } from "@/contexts/UserContext";
@@ -329,6 +330,45 @@ const ChatRoom = () => {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-pulse text-2xl">Loading room...</div>
+      </div>
+    );
+  }
+
+  // If waiting for approval, show waiting interface
+  if (currentRoom.pendingApproval) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-6">
+        <div className="glass p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+          <div className="mb-6 flex justify-center">
+            <Clock className="h-16 w-16 text-muted-foreground animate-pulse" />
+          </div>
+          
+          <h2 className="text-2xl font-bold mb-2">Waiting for Approval</h2>
+          <p className="text-muted-foreground mb-6">
+            Your request to join <span className="font-medium">{currentRoom.name}</span> is pending. 
+            Please wait for the room admin to approve your request.
+          </p>
+          
+          <div className="bg-muted/30 p-4 rounded-lg mb-6">
+            <div className="text-sm font-medium mb-1">Room Details</div>
+            <div className="text-xs text-muted-foreground">
+              <p>Room ID: {currentRoom.id}</p>
+              <p>Admin will be notified of your request</p>
+            </div>
+          </div>
+          
+          <Button 
+            variant="outline" 
+            className="w-full" 
+            onClick={() => {
+              leaveRoom();
+              navigate('/');
+            }}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Return to Lobby
+          </Button>
+        </div>
       </div>
     );
   }
