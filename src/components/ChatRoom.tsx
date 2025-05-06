@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -13,8 +12,7 @@ import {
   UserCheck,
   UserX,
   Bell,
-  LoaderCircle,
-  Clock
+  LoaderCircle
 } from "lucide-react";
 import { useRoom, Message as MessageType, JoinRequest } from "@/contexts/RoomContext";
 import { useUser } from "@/contexts/UserContext";
@@ -151,45 +149,6 @@ const ChatMessage = ({ message, roomId, roomPassword }: {
   );
 };
 
-// Waiting Room component for users pending approval
-const WaitingRoom = ({ currentRoom, leaveRoom, navigate }) => {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6">
-      <div className="glass p-8 rounded-lg shadow-lg max-w-md w-full text-center">
-        <div className="mb-6 flex justify-center">
-          <Clock className="h-16 w-16 text-muted-foreground animate-pulse" />
-        </div>
-        
-        <h2 className="text-2xl font-bold mb-2">Waiting for Approval</h2>
-        <p className="text-muted-foreground mb-6">
-          Your request to join <span className="font-medium">{currentRoom.name}</span> is pending. 
-          Please wait for the room admin to approve your request.
-        </p>
-        
-        <div className="bg-muted/30 p-4 rounded-lg mb-6">
-          <div className="text-sm font-medium mb-1">Room Details</div>
-          <div className="text-xs text-muted-foreground">
-            <p>Room ID: {currentRoom.id}</p>
-            <p>Admin will be notified of your request</p>
-          </div>
-        </div>
-        
-        <Button 
-          variant="outline" 
-          className="w-full" 
-          onClick={() => {
-            leaveRoom();
-            navigate('/');
-          }}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Return to Lobby
-        </Button>
-      </div>
-    </div>
-  );
-};
-
 const ChatRoom = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
@@ -252,10 +211,8 @@ const ChatRoom = () => {
   
   // Focus on message input
   useEffect(() => {
-    if (!currentRoom?.pendingApproval) {
-      messageInputRef.current?.focus();
-    }
-  }, [currentRoom?.pendingApproval]);
+    messageInputRef.current?.focus();
+  }, []);
   
   // Check if user and room exist
   useEffect(() => {
@@ -294,7 +251,7 @@ const ChatRoom = () => {
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     
-    if (!message.trim() || !currentRoom || currentRoom.pendingApproval) return;
+    if (!message.trim() || !currentRoom) return;
     
     setIsEncrypting(true);
     
@@ -373,17 +330,6 @@ const ChatRoom = () => {
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-pulse text-2xl">Loading room...</div>
       </div>
-    );
-  }
-
-  // If waiting for approval, show waiting room interface
-  if (currentRoom.pendingApproval) {
-    return (
-      <WaitingRoom 
-        currentRoom={currentRoom}
-        leaveRoom={leaveRoom}
-        navigate={navigate}
-      />
     );
   }
 
@@ -534,7 +480,7 @@ const ChatRoom = () => {
       </div>
       
       {/* Message Input */}
-      {!activeChatData && !currentRoom.pendingApproval && (
+      {!activeChatData && (
         <form onSubmit={handleSendMessage} className="p-4 border-t bg-background flex space-x-2">
           <Input 
             value={message} 
@@ -542,12 +488,12 @@ const ChatRoom = () => {
             placeholder="Type a message..." 
             className="flex-1"
             ref={messageInputRef}
-            disabled={isEncrypting || currentRoom.pendingApproval}
+            disabled={isEncrypting}
           />
           <Button 
             type="submit" 
             size="icon" 
-            disabled={!message.trim() || isEncrypting || currentRoom.pendingApproval}
+            disabled={!message.trim() || isEncrypting}
           >
             {isEncrypting ? (
               <LoaderCircle className="h-5 w-5 animate-spin" />
