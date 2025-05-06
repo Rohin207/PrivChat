@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -50,26 +51,44 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
   const { toast } = useToast();
   const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
   const [isDecrypting, setIsDecrypting] = useState(false);
+  const [decryptionAttempted, setDecryptionAttempted] = useState(false);
   
   // Decrypt the message if it's encrypted and we have the key
   useEffect(() => {
     let isMounted = true;
     
     const decryptIfNeeded = async () => {
-      // Don't attempt decryption if we don't have what we need
-      if (!message.content || !encryptionKey) {
+      // Don't re-attempt decryption if we've already tried
+      if (decryptionAttempted) {
         return;
       }
       
-      // If the message is not encrypted or doesn't look like it needs decryption, just use the content
-      if (!message.isEncrypted || !needsDecryption(message.content)) {
+      // Don't attempt decryption if we don't have what we need
+      if (!message.content) {
+        if (isMounted) setDecryptedContent(message.content || "");
+        setDecryptionAttempted(true);
+        return;
+      }
+      
+      // If the message doesn't look like it needs decryption, just use the content
+      if (!needsDecryption(message.content)) {
         if (isMounted) setDecryptedContent(message.content);
+        setDecryptionAttempted(true);
+        return;
+      }
+      
+      // If message is encrypted but we don't have a key, show locked message
+      if (!encryptionKey) {
+        if (isMounted) setDecryptedContent("🔒 [Encrypted message - encryption key required]");
+        setDecryptionAttempted(true);
         return;
       }
       
       setIsDecrypting(true);
       try {
         console.log(`Attempting to decrypt message with key length: ${encryptionKey.length}`);
+        console.log(`Message content to decrypt: ${message.content.substring(0, 20)}...`);
+        
         // Use the backward compatible decryption function
         const decrypted = await decryptMessageCompat(message.content, encryptionKey);
         
@@ -85,7 +104,10 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
         console.error("Failed to decrypt message:", error);
         if (isMounted) setDecryptedContent("⚠️ [Encrypted message - decryption failed]");
       } finally {
-        if (isMounted) setIsDecrypting(false);
+        if (isMounted) {
+          setIsDecrypting(false);
+          setDecryptionAttempted(true);
+        }
       }
     };
     
@@ -94,12 +116,19 @@ const ChatMessage = ({ message, encryptionKey }: { message: MessageType, encrypt
     return () => {
       isMounted = false;
     };
-  }, [message.content, message.isEncrypted, encryptionKey]);
+  }, [message.content, encryptionKey, decryptionAttempted]);
+  
+  // Reset decryption state when encryption key changes
+  useEffect(() => {
+    if (encryptionKey) {
+      setDecryptionAttempted(false);
+    }
+  }, [encryptionKey]);
   
   // Prepare the content to display
-  let displayContent = message.content;
+  let displayContent = message.content || "";
   
-  if (message.isEncrypted) {
+  if (needsDecryption(message.content)) {
     if (isDecrypting) {
       displayContent = "Decrypting...";
     } else if (decryptedContent) {

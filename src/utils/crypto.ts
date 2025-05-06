@@ -211,6 +211,22 @@ export const needsDecryption = (message: string): boolean => {
 };
 
 /**
+ * Safely converts a base64 string to a Uint8Array
+ * Returns null if the conversion fails
+ */
+const safeBase64ToArray = (base64String: string): Uint8Array | null => {
+  try {
+    // Convert base64 to binary string
+    const binaryString = atob(base64String);
+    // Convert binary string to Uint8Array
+    return Uint8Array.from(binaryString, c => c.charCodeAt(0));
+  } catch (error) {
+    console.error('Failed to convert base64 to array:', error);
+    return null;
+  }
+};
+
+/**
  * Decrypt a message using AES-GCM with the WebCrypto API
  * @param encryptedMessage The encrypted message (Base64 string with IV prepended)
  * @param password The password/key used for encryption
@@ -240,8 +256,16 @@ export const decryptMessage = async (encryptedMessage: string, password: string)
       // Derive key from password
       const key = await deriveKey(password);
       
-      // Convert base64 to buffer
-      const buffer = Uint8Array.from(atob(encryptedMessage), c => c.charCodeAt(0));
+      // Convert base64 to buffer with added safety check
+      const buffer = safeBase64ToArray(encryptedMessage);
+      if (!buffer) {
+        throw new Error("Failed to decode base64 string");
+      }
+      
+      // Ensure the buffer is long enough to contain IV + ciphertext
+      if (buffer.length <= 12) {
+        throw new Error("Encrypted data too short");
+      }
       
       // Extract IV (first 12 bytes)
       const iv = buffer.slice(0, 12);
@@ -282,6 +306,11 @@ export const decryptMessageCompat = async (encryptedMessage: string, key: string
     return encryptedMessage;
   }
 
+  // Don't attempt to decrypt non-encrypted looking messages
+  if (!needsDecryption(encryptedMessage)) {
+    return encryptedMessage;
+  }
+
   console.log(`Attempting to decrypt message compatibly. Message length: ${encryptedMessage.length}, Key length: ${key.length}`);
   
   // First try new WebCrypto decryption
@@ -307,8 +336,6 @@ export const legacyDecryptMessage = (encryptedMessage: string, key: string): str
     if (!encryptedMessage || !key) {
       return encryptedMessage;
     }
-    
-    console.log(`Attempting legacy decryption of message length ${encryptedMessage.length} with key ${key}`);
     
     // Simple check to see if the message looks like base64 encoded
     if (!isBase64(encryptedMessage)) {
