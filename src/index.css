@@ -237,12 +237,18 @@
   background-image: url('/lovable-uploads/85239b7a-c4a5-4b94-9503-8ac53f1fe67c.png');
 }
 
-/* Full image display */
+/* Full image display for all pages including chat room */
 .romantic-theme.day-time body::before,
 .romantic-theme.night-time body::before {
-  background-size: 100% 100%;
-  background-position: center;
-  object-fit: cover;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  z-index: -1;
 }
 
 /* Romantic Theme Glass Effects with Background Images */
@@ -315,4 +321,26 @@
 @keyframes textPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.8; }
+}
+
+/* Additional glass styling for message inputs */
+.glass-message-input {
+  backdrop-filter: blur(8px);
+  background-color: rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.romantic-theme.day-time .glass-message-input {
+  background-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 192, 203, 0.3);
+}
+
+.romantic-theme.night-time .glass-message-input {
+  background-color: rgba(30, 30, 60, 0.4);
+  border-color: rgba(100, 100, 255, 0.3);
+}
+
+.hacker-theme .glass-message-input {
+  background-color: rgba(0, 20, 0, 0.7);
+  border-color: rgba(0, 255, 0, 0.2);
 }

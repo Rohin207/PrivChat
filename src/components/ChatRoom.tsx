@@ -415,7 +415,7 @@ const ChatRoom = () => {
         {activeChatData ? (
           // Private Chat
           <div className="flex flex-col h-full">
-            <div className="bg-accent/20 rounded-lg p-2 mb-4 flex items-center justify-between">
+            <div className="bg-accent/20 rounded-lg p-2 mb-4 flex items-center justify-between glass">
               <div className="flex items-center space-x-2">
                 <User className="h-4 w-4" />
                 <span className="text-sm">
@@ -451,13 +451,14 @@ const ChatRoom = () => {
                 value={privateMessage} 
                 onChange={(e) => setPrivateMessage(e.target.value)} 
                 placeholder="Type a private message..." 
-                className="flex-1"
+                className="flex-1 glass-input"
                 ref={messageInputRef}
               />
               <Button 
                 type="submit" 
                 size="icon" 
                 disabled={!privateMessage.trim()}
+                className="glass"
               >
                 <Send className="h-5 w-5" />
               </Button>
@@ -481,18 +482,19 @@ const ChatRoom = () => {
       
       {/* Message Input */}
       {!activeChatData && (
-        <form onSubmit={handleSendMessage} className="p-4 border-t bg-background flex space-x-2">
+        <form onSubmit={handleSendMessage} className="p-4 border-t glass backdrop-blur-md bg-background/40 flex space-x-2">
           <Input 
             value={message} 
             onChange={(e) => setMessage(e.target.value)} 
             placeholder="Type a message..." 
-            className="flex-1"
+            className="flex-1 glass-input"
             ref={messageInputRef}
             disabled={isEncrypting}
           />
           <Button 
             type="submit" 
             size="icon" 
+            className="glass"
             disabled={!message.trim() || isEncrypting}
           >
             {isEncrypting ? (
