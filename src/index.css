@@ -163,6 +163,19 @@
   @apply backdrop-blur-sm bg-background/90 border border-primary/30 shadow-lg;
 }
 
+/* Input and textarea areas */
+.glass-input {
+  @apply glass !bg-background/40;
+}
+
+.romantic-theme .glass-input {
+  @apply !bg-background/30;
+}
+
+.hacker-theme .glass-input {
+  @apply !bg-background/20;
+}
+
 @keyframes typing {
   from { width: 0 }
   to { width: 100% }
@@ -222,6 +235,14 @@
 
 .romantic-theme.night-time body::before {
   background-image: url('/lovable-uploads/85239b7a-c4a5-4b94-9503-8ac53f1fe67c.png');
+}
+
+/* Full image display */
+.romantic-theme.day-time body::before,
+.romantic-theme.night-time body::before {
+  background-size: 100% 100%;
+  background-position: center;
+  object-fit: cover;
 }
 
 /* Romantic Theme Glass Effects with Background Images */

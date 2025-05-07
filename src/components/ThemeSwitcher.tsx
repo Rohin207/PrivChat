@@ -12,7 +12,7 @@ const ThemeSwitcher = () => {
         variant={theme === 'classic' ? "default" : "outline"}
         size="icon"
         onClick={() => setTheme('classic')}
-        className={`rounded-full transition-all ${
+        className={`rounded-full transition-all glass ${
           theme === 'classic' ? 'bg-primary text-primary-foreground' : ''
         }`}
         title="Classic Theme"
@@ -24,7 +24,7 @@ const ThemeSwitcher = () => {
         variant={theme === 'romantic' ? "default" : "outline"}
         size="icon"
         onClick={() => setTheme('romantic')}
-        className={`rounded-full transition-all ${
+        className={`rounded-full transition-all glass ${
           theme === 'romantic' ? 'bg-primary text-primary-foreground' : ''
         }`}
         title={`Romantic Theme (${timeOfDay === 'day' ? 'Day' : 'Night'})`}
@@ -36,7 +36,7 @@ const ThemeSwitcher = () => {
         variant={theme === 'hacker' ? "default" : "outline"}
         size="icon"
         onClick={() => setTheme('hacker')}
-        className={`rounded-full transition-all ${
+        className={`rounded-full transition-all glass ${
           theme === 'hacker' ? 'bg-primary text-primary-foreground' : ''
         }`}
         title="Hacker Theme"
