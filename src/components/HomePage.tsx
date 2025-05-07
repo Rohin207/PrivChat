@@ -76,11 +76,6 @@ const HomePage = () => {
         description: `Room ID: ${room.id}\nPassword: ${room.password}\nShare these with your partner!`,
       });
       
-      // Store encryption key
-      if (room.encryptionKey) {
-        sessionStorage.setItem(`room_${room.id}_key`, room.encryptionKey);
-      }
-      
       // Navigate to the room
       navigate(`/room/${room.id}`);
     } catch (error) {
@@ -193,7 +188,7 @@ const HomePage = () => {
       
       <div className="glass p-8 rounded-2xl w-full max-w-md flex flex-col items-center space-y-8">
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight">Secret Room</h1>
+          <h1 className="text-4xl font-bold tracking-tight">PrivChat</h1>
           <p className="text-muted-foreground">End-to-end encrypted chat rooms</p>
         </div>
         
