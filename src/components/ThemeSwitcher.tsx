@@ -4,7 +4,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { Button } from "@/components/ui/button";
 
 const ThemeSwitcher = () => {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, timeOfDay } = useTheme();
 
   return (
     <div className="flex items-center gap-2">
@@ -27,7 +27,7 @@ const ThemeSwitcher = () => {
         className={`rounded-full transition-all ${
           theme === 'romantic' ? 'bg-primary text-primary-foreground' : ''
         }`}
-        title="Romantic Theme"
+        title={`Romantic Theme (${timeOfDay === 'day' ? 'Day' : 'Night'})`}
       >
         <Heart className="h-5 w-5" />
       </Button>
