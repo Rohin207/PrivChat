@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,8 +5,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Lock } from "lucide-react";
 
-// The passcode is intentionally complex and random
-const ADMIN_PASSCODE = "LvB_c0mpl3x_P4ssc0d3_2025";
+// The passcode is intentionally complex for security
+const ADMIN_PASSCODE = "kutta@billi#2025";
 
 interface AdminAuthProps {
   onAuthenticated: () => void;
