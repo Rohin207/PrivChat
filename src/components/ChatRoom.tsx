@@ -451,7 +451,7 @@ const ChatRoom = () => {
                 value={privateMessage} 
                 onChange={(e) => setPrivateMessage(e.target.value)} 
                 placeholder="Type a private message..." 
-                className="flex-1 glass-input"
+                className="flex-1 border-none backdrop-blur-md bg-transparent"
                 ref={messageInputRef}
               />
               <Button 
@@ -482,12 +482,12 @@ const ChatRoom = () => {
       
       {/* Message Input */}
       {!activeChatData && (
-        <form onSubmit={handleSendMessage} className="p-4 border-t glass backdrop-blur-md bg-background/40 flex space-x-2">
+        <form onSubmit={handleSendMessage} className="p-4 border-t backdrop-blur-md bg-transparent flex space-x-2">
           <Input 
             value={message} 
             onChange={(e) => setMessage(e.target.value)} 
-            placeholder="Type a message..." 
-            className="flex-1 glass-input"
+            placeholder="Type your message" 
+            className="flex-1 border-none text-foreground"
             ref={messageInputRef}
             disabled={isEncrypting}
           />
@@ -529,9 +529,9 @@ const ChatRoom = () => {
       
       {/* Participants Dialog */}
       <Dialog open={showParticipants} onOpenChange={setShowParticipants}>
-        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
+        <DialogContent className={`glass backdrop-blur-xl bg-transparent ${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
-            <DialogTitle>Room Participants</DialogTitle>
+            <DialogTitle className="text-foreground font-bold">Room Participants</DialogTitle>
           </DialogHeader>
           
           <ScrollArea className="h-64">
@@ -573,9 +573,9 @@ const ChatRoom = () => {
       
       {/* Private Chat Dialog */}
       <Dialog open={showPrivateChat} onOpenChange={setShowPrivateChat}>
-        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
+        <DialogContent className={`glass backdrop-blur-xl bg-transparent ${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="text-foreground font-bold">
               Private Chat with {selectedUser && currentRoom.participants.find(p => p.id === selectedUser)?.name}
             </DialogTitle>
           </DialogHeader>
@@ -602,22 +602,22 @@ const ChatRoom = () => {
 
       {/* Room Credentials Dialog */}
       <Dialog open={showCredentials} onOpenChange={setShowCredentials}>
-        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
+        <DialogContent className={`glass backdrop-blur-xl bg-transparent ${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
-            <DialogTitle>Room Credentials</DialogTitle>
+            <DialogTitle className="text-foreground font-bold">Room Credentials</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Room ID</label>
-              <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
+              <label className="text-sm font-medium text-foreground">Room ID</label>
+              <div className="p-3 bg-transparent border border-white/20 rounded-md font-mono text-sm break-all text-foreground">
                 {currentRoom.id}
               </div>
             </div>
             
             <div className="space-y-2">
-              <label className="text-sm font-medium">Room Password</label>
-              <div className="p-3 bg-muted rounded-md font-mono text-sm break-all">
+              <label className="text-sm font-medium text-foreground">Room Password</label>
+              <div className="p-3 bg-transparent border border-white/20 rounded-md font-mono text-sm break-all text-foreground">
                 {currentRoom.password}
               </div>
             </div>
@@ -644,9 +644,9 @@ const ChatRoom = () => {
       
       {/* Join Requests Dialog */}
       <Dialog open={showJoinRequests} onOpenChange={setShowJoinRequests}>
-        <DialogContent className={`${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
+        <DialogContent className={`glass backdrop-blur-xl bg-transparent ${isMobile ? 'w-[90vw] max-w-[90vw]' : ''}`}>
           <DialogHeader>
-            <DialogTitle>Join Requests</DialogTitle>
+            <DialogTitle className="text-foreground font-bold">Join Requests</DialogTitle>
           </DialogHeader>
           
           <ScrollArea className="h-64">
@@ -701,10 +701,10 @@ const ChatRoom = () => {
       
       {/* Leave Room Alert Dialog */}
       <AlertDialog open={showLeaveAlert} onOpenChange={setShowLeaveAlert}>
-        <AlertDialogContent>
+        <AlertDialogContent className="glass backdrop-blur-xl bg-transparent">
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure you want to leave?</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogTitle className="text-foreground font-bold">Are you sure you want to leave?</AlertDialogTitle>
+            <AlertDialogDescription className="text-foreground/90">
               You will be removed from the room. If you are the last person to leave, the room will be deleted permanently.
             </AlertDialogDescription>
           </AlertDialogHeader>
